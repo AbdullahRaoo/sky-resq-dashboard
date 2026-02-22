@@ -163,3 +163,14 @@ Traceback (most recent call last):
 KeyboardInterrupt
 2026-02-21 21:55:26,983 │ asyncio                             │ ERROR    │ Task was destroyed but it is pending!
 task: <Task cancelling name='Task-2' coro=<LifespanOn.main() running at C:\Users\abdul\AppData\Roaming\Python\Python313\site-packages\uvicorn\lifespan\on.py:86> wait_for=<Future cancelled> cb=[gather.<locals>._done_callback() at C:\Python313\Lib\asyncio\tasks.py:820]>
+2026-02-22 03:56:51,285 │ skyresq                             │ INFO     │ ═══════════════════════════════════════════
+2026-02-22 03:56:51,286 │ skyresq                             │ INFO     │   Sky ResQ Dashboard — Backend Starting    
+2026-02-22 03:56:51,286 │ skyresq                             │ INFO     │ ═══════════════════════════════════════════
+2026-02-22 03:56:51,286 │ skyresq                             │ INFO     │ MAVLink target: COM3 @ 57600 baud
+2026-02-22 03:57:28,576 │ skyresq.services.telemetry          │ INFO     │ Client connected. Total: 1
+2026-02-22 03:57:43,828 │ skyresq.services.telemetry          │ INFO     │ Client connected. Total: 2
+2026-02-22 03:57:55,004 │ skyresq.services.telemetry          │ INFO     │ Client disconnected. Total: 1
+2026-02-22 04:29:46,319 │ skyresq.services.telemetry          │ INFO     │ Client disconnected. Total: 0
+2026-02-22 04:29:46,428 │ skyresq                             │ INFO     │ Shutting down telemetry service...
+2026-02-22 04:29:46,429 │ skyresq.services.telemetry          │ INFO     │ Telemetry service stopped
+2026-02-22 04:29:46,429 │ skyresq                             │ INFO     │ Backend shutdown complete.

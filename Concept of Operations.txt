@@ -1,0 +1,67 @@
+Concept of Operations (ConOps): Autonomous Aerial Search and Rescue System
+1. Mission Overview
+The primary objective of the AASRS is to rapidly deploy into disaster-stricken or hard-to-reach environments, autonomously locate human survivors using Edge AI, relay precise coordinates back to a Ground Control Station (GCS) in real-time, and deliver emergency medical payloads.
+
+The operation is conducted Beyond Visual Line of Sight (BVLOS) utilizing a dual-redundant hybrid communication architecture (4G LTE over Tailscale and 433/915MHz SiK Radio).
+
+2. Phase I: Pre-Flight & Mission Planning
+Before the drone leaves the ground, the operator utilizes the custom-built Electron Desktop GCS to define the parameters of the rescue mission.
+
+System Initialization: The operator powers on the quadcopter. The Raspberry Pi 4 (Companion Computer) boots up, establishes a Tailscale VPN connection over the 4G network, and bridges telemetry from the Pixhawk Cube Black to the GCS.
+
+GCS Connection: The Electron GCS on the operator's laptop simultaneously connects to the high-bandwidth 4G network (for video and AI payloads) and the local COM3 port for the SiK Radio (for backup telemetry).
+
+Area Definition: The operator uses the interactive Leaflet map on the GCS dashboard to draw a polygon around the suspected disaster zone.
+
+Path Generation: The dashboard backend automatically translates this polygon into an optimal "Lawnmower" (Survey) grid pattern. It calculates the necessary altitude, overlap, and speed, and uploads the MAV_CMD_NAV_SPLINE_WAYPOINT list to the Pixhawk.
+
+3. Phase II: Deployment & Transit
+Once the mission is uploaded and GPS locks are confirmed (HDOP < 1.5, Satellites > 10), the execution phase begins.
+
+The operator clicks "Arm & Auto" on the dashboard.
+
+The drone autonomously takes off to a safe transit altitude, avoiding local ground obstacles.
+
+The Pixhawk navigates the drone from the launch point to the first waypoint of the search grid at high speed.
+
+The operator monitors the drone's transit via the 4K video feed and the GCS Heads-Up Display (HUD), which shows the artificial horizon, altitude, and battery health.
+
+4. Phase III: Search & Detection
+This is the core autonomous phase where the edge computing hardware takes over to minimize the operator's cognitive load.
+
+Autonomous Scanning: The drone enters the search zone and begins flying the lawnmower pattern. The XF-Z-1MINI 3-axis gimbal pitches the 4K night-vision camera straight down (Nadir view).
+
+Edge AI Inference: The Raspberry Pi continuously captures frames from the camera, downscales them to 640x640, and runs them through a lightweight, quantized YOLO (You Only Look Once) object detection model.
+
+Geospatial Localization: When a survivor is identified, the Pi triggers a Python script that cross-references the bounding box pixel data with the drone's live telemetry (Altitude, GPS location, and Gimbal Angle). Using trigonometry, it calculates the exact Latitude and Longitude of the survivor on the ground.
+
+Data Transmission: To prevent spamming the operator, the Pi clusters nearby detections, averages their coordinates, and sends a single, lightweight JSON payload over the 4G network to the dashboard (e.g., {"type": "survivor_cluster", "count": 3, "lat": 33.729, "lon": 73.093}).
+
+5. Phase IV: Target Confirmation & Action
+Once survivors are located, the operation shifts from autonomous scanning to manual/guided intervention.
+
+GCS Alert: A visual and auditory alarm triggers on the Electron dashboard. A new "Survivor" marker appears on the Leaflet map.
+
+Guided Approach: The operator interrupts the auto-mission by clicking the survivor marker and commanding the drone to fly directly to that coordinate and hover.
+
+Visual Confirmation: The operator uses the 4K video feed to manually pan the camera, assess the survivors' condition, and ensure the drop zone is clear of hazards (e.g., water, steep cliffs).
+
+Payload Delivery: The operator clicks "Deploy Rescue Payload." The GCS sends a MAV_CMD_DO_SET_SERVO command to the Pixhawk. A servo on the landing gear unlatches, dropping the first-aid/communication supplies to the survivors.
+
+6. Phase V: Return & Post-Flight
+With the payload delivered and the mission objectives achieved, the drone must be recovered safely.
+
+RTL Execution: The operator clicks the "Return to Launch" (RTL) button.
+
+Safe Ascent: The Pixhawk immediately commands the drone to climb to a pre-defined safe clearance altitude to avoid hitting any trees or structures on the way back.
+
+Autonomous Landing: The drone flies in a straight line back to the exact GPS coordinates where it was armed, autonomously descends, and disarms its motors upon touching the ground.
+
+7. Contingency & Failsafe Operations
+Because this system is designed for high-stakes emergency environments, it includes enterprise-grade failsafes to handle technical anomalies:
+
+Cellular Dead Zone (Loss of 4G): If the drone flies out of the 4G/Evo CharJi network range, the 4K video feed and Tailscale connection will freeze. The Electron GCS automatically switches its primary data source to the SiK Telemetry Radio (COM3). The operator loses video but retains full map tracking, artificial horizon, and command authority.
+
+Complete Signal Loss (GCS Heartbeat Timeout): The dashboard transmits a continuous 1Hz MAVLink heartbeat. If both the 4G and Radio links drop simultaneously for more than 5 seconds, the Pixhawk's internal failsafe triggers an immediate, autonomous RTL to bring the drone back into communication range.
+
+Low Battery: If the battery voltage drops below the critical threshold during the search phase, the Pixhawk will automatically abort the mission and initiate an RTL to ensure the expensive hardware is not lost in the field.

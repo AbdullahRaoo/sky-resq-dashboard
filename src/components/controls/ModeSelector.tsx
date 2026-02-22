@@ -1,12 +1,13 @@
 /**
  * ModeSelector — flight mode dropdown.
+ * Uses Electron IPC instead of REST API.
  */
 
 "use client";
 
 import { useState, useCallback } from "react";
 import { useConnected, useHeartbeat } from "@/hooks/useTelemetry";
-import { API_URL, SELECTABLE_MODES } from "@/lib/constants";
+import { SELECTABLE_MODES } from "@/lib/constants";
 
 export default function ModeSelector() {
     const connected = useConnected();
@@ -16,14 +17,13 @@ export default function ModeSelector() {
     const handleModeChange = useCallback(
         async (e: React.ChangeEvent<HTMLSelectElement>) => {
             const mode = e.target.value;
-            if (!mode || mode === flight_mode) return;
+            if (!mode || mode === flight_mode || !window.electron) return;
 
             setLoading(true);
             try {
-                const res = await fetch(`${API_URL}/mode/${mode}`, { method: "POST" });
-                const data = await res.json();
-                if (!data.success) {
-                    console.error("[CMD] Set mode failed:", data.message);
+                const result = await window.electron.setMode(mode);
+                if (!result.success) {
+                    console.error("[CMD] Set mode failed:", result.message);
                 }
             } catch (err) {
                 console.error("[CMD] Set mode error:", err);

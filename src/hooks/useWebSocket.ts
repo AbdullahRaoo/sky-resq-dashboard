@@ -1,17 +1,22 @@
 /**
- * useWebSocket hook — manages WebSocket connection with auto-reconnect.
+ * useWebSocket hook — DEPRECATED.
  *
- * Connects to the backend telemetry WS endpoint and pipes
- * parsed DroneState into the Zustand store at 10Hz.
+ * This hook has been replaced by useElectronTelemetry.ts which uses
+ * Electron IPC instead of WebSocket for telemetry data.
+ *
+ * Kept for reference only. Not imported anywhere.
  */
 
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
 import { useTelemetryStore } from "@/store/telemetryStore";
-import { WS_URL, WS_RECONNECT_INTERVAL_MS } from "@/lib/constants";
 import type { DroneState } from "@/types/telemetry";
 
+const WS_URL = "ws://localhost:8000/ws/telemetry";
+const WS_RECONNECT_INTERVAL_MS = 3000;
+
+/** @deprecated Use useElectronTelemetry instead. */
 export function useWebSocket() {
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -43,7 +48,6 @@ export function useWebSocket() {
                 resetState();
                 wsRef.current = null;
 
-                // Auto-reconnect
                 if (mountedRef.current) {
                     reconnectTimer.current = setTimeout(() => {
                         console.log("[WS] Reconnecting...");

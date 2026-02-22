@@ -1,11 +1,5 @@
-/** API and WebSocket constants. */
+/** Constants for the Sky ResQ Dashboard. */
 
-export const API_URL =
-    process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
-export const WS_URL =
-    process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws/telemetry";
-
-export const WS_RECONNECT_INTERVAL_MS = 3000;
 export const HEARTBEAT_TIMEOUT_MS = 5000;
 
 /** Map tile layers */
@@ -30,7 +24,7 @@ export const MAP_TILES = {
     },
 } as const;
 
-/** Default map center (0, 0) until first GPS fix. */
+/** Default map center until first GPS fix. */
 export const DEFAULT_MAP_CENTER: [number, number] = [33.6844, 73.0479]; // Islamabad
 export const DEFAULT_MAP_ZOOM = 15;
 

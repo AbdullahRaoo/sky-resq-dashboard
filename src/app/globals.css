@@ -252,20 +252,34 @@ body {
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
 }
 
 @keyframes pulse-armed {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.2); }
-  50% { box-shadow: 0 0 12px 2px rgba(249, 115, 22, 0.15); }
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.2);
+  }
+
+  50% {
+    box-shadow: 0 0 12px 2px rgba(249, 115, 22, 0.15);
+  }
 }
 
 /* ── Main Content ──────────────────────────── */
 .main-content {
   grid-area: main;
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 1fr 380px;
   grid-template-rows: 1fr auto;
   gap: 0;
   overflow: hidden;
@@ -422,14 +436,14 @@ body {
 }
 
 .attitude-indicator {
-  width: 180px;
-  height: 180px;
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
   background: radial-gradient(circle at 50% 30%, #1a3a5c, #0d1b2e);
   border: 3px solid var(--border-subtle);
   position: relative;
   overflow: hidden;
-  box-shadow: 
+  box-shadow:
     inset 0 0 30px rgba(0, 0, 0, 0.5),
     var(--shadow-lg);
 }
@@ -439,13 +453,11 @@ body {
   width: 200%;
   height: 200%;
   left: -50%;
-  background: linear-gradient(
-    to bottom,
-    #1e5a8c 0%,
-    #2a7ab8 40%,
-    #8B6914 40%,
-    #6b4f0e 100%
-  );
+  background: linear-gradient(to bottom,
+      #1e5a8c 0%,
+      #2a7ab8 40%,
+      #8B6914 40%,
+      #6b4f0e 100%);
   transform-origin: center center;
   transition: transform 100ms linear;
 }
@@ -525,13 +537,29 @@ body {
   border-radius: 2px;
 }
 
-.battery-fill--high { background: var(--accent-emerald); }
-.battery-fill--mid { background: var(--accent-amber); }
-.battery-fill--low { background: var(--accent-red); animation: pulse-battery 1s ease-in-out infinite; }
+.battery-fill--high {
+  background: var(--accent-emerald);
+}
+
+.battery-fill--mid {
+  background: var(--accent-amber);
+}
+
+.battery-fill--low {
+  background: var(--accent-red);
+  animation: pulse-battery 1s ease-in-out infinite;
+}
 
 @keyframes pulse-battery {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .battery-info {
@@ -566,9 +594,20 @@ body {
   font-family: 'JetBrains Mono', monospace;
 }
 
-.gps-fix--none { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
-.gps-fix--2d { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
-.gps-fix--3d { background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); }
+.gps-fix--none {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+}
+
+.gps-fix--2d {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-amber);
+}
+
+.gps-fix--3d {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald);
+}
 
 .gps-sats {
   font-family: 'JetBrains Mono', monospace;
@@ -802,4 +841,651 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--border-subtle);
   border-radius: 3px;
+}
+
+/* ── Electron App Wrapper ─────────────────── */
+.electron-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.electron-app .dashboard-layout {
+  flex: 1;
+  height: auto;
+  grid-template-rows: var(--header-height) 1fr auto;
+  grid-template-areas:
+    "sidebar header"
+    "sidebar main"
+    "sidebar console";
+}
+
+/* ── Custom Title Bar ─────────────────────── */
+.title-bar {
+  height: 32px;
+  background: #060a10;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  user-select: none;
+  z-index: 200;
+}
+
+.title-bar__drag {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.title-bar__icon {
+  width: 16px;
+  height: 16px;
+  color: var(--accent-cyan);
+  flex-shrink: 0;
+}
+
+.title-bar__text {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.title-bar__controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.title-bar__btn {
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-fast);
+}
+
+.title-bar__btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.title-bar__btn--close:hover {
+  background: var(--accent-red);
+  color: white;
+}
+
+/* ── Console Panel (Bottom) ───────────────── */
+.console-panel {
+  grid-area: console;
+  background: #060a10;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  min-height: 32px;
+}
+
+.console-panel--collapsed {
+  max-height: 32px;
+}
+
+.console-panel__header {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.06);
+}
+
+.console-panel__header:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.console-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.console-panel__title svg {
+  color: var(--accent-cyan);
+}
+
+.console-panel__count {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: auto;
+}
+
+.console-panel__toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.console-panel__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+}
+
+.console-panel__body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.console-panel__body::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 2px;
+}
+
+.console-panel__empty {
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.console-panel__line {
+  display: flex;
+  gap: 10px;
+  padding: 2px 12px;
+  line-height: 1.6;
+}
+
+.console-panel__line:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.console-panel__ts {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.console-panel__msg {
+  color: var(--accent-emerald);
+  word-break: break-word;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GCS UPGRADE — New Component Styles
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Orientation Row (Attitude + Compass side by side) ──── */
+.orientation-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ── Compass Rose ─────────────────────────────────────────── */
+.compass-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.compass-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.compass-readout__deg {
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-bright);
+}
+
+.compass-readout__dir {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  letter-spacing: 0.05em;
+}
+
+.compass-ring-wrapper {
+  position: relative;
+  width: 140px;
+  height: 140px;
+}
+
+.compass-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(148, 163, 184, 0.2);
+  transition: transform 0.15s ease-out;
+}
+
+.compass-cardinal {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  transform-origin: center center;
+}
+
+.compass-cardinal__label {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.compass-cardinal--north .compass-cardinal__label {
+  color: var(--accent-red);
+  font-size: 0.7rem;
+}
+
+.compass-tick {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  transform-origin: center center;
+}
+
+.compass-tick::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 8px;
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 1px;
+}
+
+.compass-tick--minor::after {
+  height: 5px;
+  width: 1px;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.compass-nose {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 10px solid var(--accent-cyan);
+  z-index: 10;
+  filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.4));
+}
+
+/* ── Compass Attitude Readout ─────────────────────────────── */
+.compass-attitude {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.compass-att-item {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.compass-att-label {
+  font-size: 0.55rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.compass-att-value {
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-bright);
+}
+
+/* ── HUD Categories (Categorized Telemetry) ──────────────── */
+.hud-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hud-category {
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(148, 163, 184, 0.06);
+}
+
+.hud-category__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent-cyan);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(0, 229, 255, 0.1);
+}
+
+.hud-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.hud-row__label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.hud-row__value {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.hud-row__value--mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.hud-row__value--accent {
+  color: var(--accent-cyan);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.hud-row__unit {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.hud-mini-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.hud-mini-grid--3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.hud-mini-card {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  border: 1px solid rgba(148, 163, 184, 0.04);
+  text-align: center;
+}
+
+.hud-mini-card__label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hud-mini-card__value {
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-bright);
+}
+
+.hud-mini-card__unit {
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  margin-left: 1px;
+}
+
+.hud-fix-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+}
+
+.hud-fix--3d {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald);
+}
+
+.hud-fix--2d {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-amber);
+}
+
+.hud-fix--none {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+}
+
+.panel-section--flush {
+  padding: 0;
+}
+
+.panel-section--flush>.panel-section__title {
+  padding: 0 12px;
+}
+
+/* ── Flight Timer ─────────────────────────────────────────── */
+.flight-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(148, 163, 184, 0.06);
+  margin: 0 0 2px 0;
+}
+
+.flight-timer__icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.flight-timer__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.flight-timer__label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flight-timer__value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+
+.flight-timer__value--active {
+  color: var(--accent-emerald);
+}
+
+.flight-timer__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-emerald);
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    opacity: 0.4;
+    box-shadow: 0 0 4px rgba(16, 185, 129, 0.3);
+  }
+
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  }
+}
+
+/* ── Quick Actions ────────────────────────────────────────── */
+.quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.quick-action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  border: 1px solid;
+  transition: var(--transition-fast);
+}
+
+.quick-action-btn:hover:not(:disabled) {
+  filter: brightness(1.3);
+  transform: translateY(-1px);
+}
+
+.quick-action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ── Map Recenter Button ──────────────────────────────────── */
+.map-recenter-btn {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-cyan);
+  background: rgba(10, 15, 30, 0.85);
+  color: var(--accent-cyan);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-fast);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+.map-recenter-btn:hover {
+  background: rgba(0, 229, 255, 0.15);
+  box-shadow: 0 0 16px rgba(0, 229, 255, 0.3);
+}
+
+/* ── Header Telemetry Bar ─────────────────────────────────── */
+.header-telemetry {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-left: 24px;
+  padding: 4px 12px;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.header-telem-item {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.header-telem-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+
+.header-telem-value {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-bright);
+}
+
+.header-telem-sep {
+  color: rgba(148, 163, 184, 0.15);
+  font-size: 0.7rem;
+  margin: 0 8px;
+}
+
+/* ── Drone & Home Markers ─────────────────────────────────── */
+.drone-marker-custom {
+  background: transparent !important;
+  border: none !important;
+}
+
+.home-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* ── Map Container (ensure recenter btn is positioned correctly) ── */
+.map-container {
+  position: relative;
 }

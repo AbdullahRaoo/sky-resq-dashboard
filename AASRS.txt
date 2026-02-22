@@ -1,0 +1,46 @@
+Project Title: Autonomous Aerial Search and Rescue System (AASRS)
+1. Executive Summary
+The Autonomous Aerial Search and Rescue System (AASRS) is a highly advanced, cost-effective quadcopter designed to locate and assist victims in disaster-stricken areas. Built on a custom quadcopter airframe to optimize budget allocation without sacrificing payload capacity, the drone utilizes enterprise-grade autonomous flight controllers, edge-AI computer vision, and a dual-redundant communication architecture.
+
+The system operates Beyond Visual Line of Sight (BVLOS), autonomously scanning designated disaster zones in a lawnmower pattern. Utilizing a 4K full-color night vision camera and an onboard Raspberry Pi companion computer, it identifies survivors, calculates their precise GPS coordinates, relays the data to a custom-built Electron desktop Ground Control Station (GCS), and drops critical emergency supplies before autonomously returning to launch.
+
+2. Hardware Architecture
+The physical drone is built around a robust, modular hardware stack:
+
+Flight Controller (The Brain): Cube Black (Pixhawk). Selected for its aerospace-grade reliability, it features a 32-bit ARM Cortex M4 processor, triple-redundant temperature-controlled IMUs, and dual barometers. It handles all low-level flight stabilization and autonomous waypoint navigation.
+
+Companion Computer (The Edge AI): Raspberry Pi 4. Interfaced with the Cube Black via the TELEM2 port using the MAVLink protocol, it handles high-level processing, including computer vision, video compression, and network routing.
+
+Optical Payload: XF-Z-1MINI 3-Axis Gimbal. An ultra-lightweight (69g) camera featuring an AI-ISP full-color night vision sensor. It supports MAVLink protocol control, allowing the GCS to control camera pitch/yaw and trigger events directly.
+
+Rescue Payload Mechanism: A servo-actuated latch system integrated with the drone's landing gear, triggered via a MAVLink MAV_CMD_DO_SET_SERVO command to drop first-aid supplies.
+
+3. Hybrid Communication Network (Redundant Links)
+To ensure the drone never loses connection during a critical rescue mission, the system utilizes a commercial-grade dual-link architecture:
+
+Primary High-Bandwidth Link (4G LTE + Tailscale VPN): A 4G USB dongle connected to the Raspberry Pi provides unlimited range anywhere with cell tower coverage. A Tailscale VPN secures the network, transmitting the 4K video feed via WebRTC (for near-zero latency) and high-speed MAVLink telemetry via UDP sockets.
+
+Backup Lifeline Link (SiK Radio Telemetry): A pair of low-frequency (433MHz/915MHz) SiK radios acts as a hardware failsafe. Connected directly to the Cube Black’s TELEM1 port and the GCS laptop, this 57600-baud serial link easily punches through physical obstacles, ensuring the drone's telemetry and control commands survive even if the local cellular network completely fails.
+
+4. Software & AI Stack
+Custom Ground Control Station (GCS): Instead of using off-the-shelf software like Mission Planner, the project features a custom-engineered Electron Desktop Application. The frontend is built with React (Next.js) and TailwindCSS, featuring an interactive Leaflet map and dynamic telemetry HUD. The Node.js backend natively reads both the Radio Serial port (COM3) and the 4G UDP network stream, parsing MAVLink data via node-mavlink and streaming it to the UI via IPC (Inter-Process Communication).
+
+Computer Vision (ROS Noetic): The Raspberry Pi runs a lightweight, quantized YOLO (You Only Look Once) object detection model. To preserve CPU resources, video frames are downscaled before inference.
+
+Geospatial Localization: When a survivor is detected in the video frame, a Python algorithm calculates the victim's exact GPS coordinates using the drone's current altitude, GPS location, and the gimbal's pitch/yaw angle. A clustering algorithm groups nearby detections to prevent duplicate reporting.
+
+5. Failsafes and Reliability
+GCS Heartbeat Failsafe: The GCS continuously transmits a MAVLink "Heartbeat" (1Hz) to the Cube Black. If both the 4G and Radio links drop and the heartbeat is lost for more than 5 seconds, the drone autonomously triggers an RTL (Return to Launch), climbing to a safe altitude and flying home.
+
+Graceful UI Degradation: If the 4G network drops, the GCS dashboard smoothly transitions to the low-bandwidth Radio link. The video feed will freeze, but the map, artificial horizon, battery telemetry, and rescue commands remain fully operational.
+
+6. Concept of Operations (Mission Profile)
+Deployment: The operator outlines a polygon over the disaster area on the GCS map. The dashboard translates this into a spline waypoint "Survey/Lawnmower" grid and uploads it to the drone.
+
+Search Phase: The drone takes off autonomously and executes the grid. The Raspberry Pi continuously analyzes the 4K camera feed.
+
+Detection & Reporting: Upon detecting humans, the Pi calculates their GPS coordinates and sends a JSON payload over the 4G network to the GCS (e.g., {"event": "survivors_found", "count": 2, "lat": 33.72, "lon": 73.09}).
+
+Action: The operator clicks "Deploy Rescue Payload" on the dashboard. The drone drops the medical supplies to the calculated coordinates.
+
+Recovery: The drone executes an RTL command, safely landing at its launch point for a battery swap and debriefing.

@@ -1,12 +1,12 @@
 /**
  * ConnectionPanel — connection profile selector + connect/disconnect button.
+ * Uses Electron IPC instead of REST API.
  */
 
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { useConnected } from "@/hooks/useTelemetry";
-import { API_URL } from "@/lib/constants";
 import type { ConnectionProfile } from "@/types/telemetry";
 
 export default function ConnectionPanel() {
@@ -15,21 +15,23 @@ export default function ConnectionPanel() {
     const [selectedProfile, setSelectedProfile] = useState<string>("");
     const [loading, setLoading] = useState(false);
 
-    // Fetch connection profiles on mount
+    // Fetch connection profiles from Electron main process
     useEffect(() => {
-        fetch(`${API_URL}/connection-profiles`)
-            .then((res) => res.json())
+        if (typeof window === "undefined" || !window.electron) return;
+
+        window.electron
+            .getConnectionProfiles()
             .then((data: ConnectionProfile[]) => {
                 setProfiles(data);
                 if (data.length > 0) {
                     setSelectedProfile(data[0].connection_string);
                 }
             })
-            .catch((err) => console.error("Failed to fetch profiles:", err));
+            .catch((err: unknown) => console.error("Failed to fetch profiles:", err));
     }, []);
 
     const handleConnect = useCallback(async () => {
-        if (!selectedProfile) return;
+        if (!selectedProfile || !window.electron) return;
         setLoading(true);
 
         const profile = profiles.find(
@@ -37,17 +39,12 @@ export default function ConnectionPanel() {
         );
 
         try {
-            const res = await fetch(`${API_URL}/connect`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    connection_string: selectedProfile,
-                    baud_rate: profile?.baud_rate ?? 57600,
-                }),
+            const result = await window.electron.connect({
+                connection_string: selectedProfile,
+                baud_rate: profile?.baud_rate ?? 57600,
             });
-            const data = await res.json();
-            if (!data.success) {
-                console.error("[CMD] Connect failed:", data.message);
+            if (!result.success) {
+                console.error("[CMD] Connect failed:", result.message);
             }
         } catch (err) {
             console.error("[CMD] Connect error:", err);
@@ -57,9 +54,10 @@ export default function ConnectionPanel() {
     }, [selectedProfile, profiles]);
 
     const handleDisconnect = useCallback(async () => {
+        if (!window.electron) return;
         setLoading(true);
         try {
-            await fetch(`${API_URL}/disconnect`, { method: "POST" });
+            await window.electron.disconnect();
         } catch (err) {
             console.error("[CMD] Disconnect error:", err);
         } finally {

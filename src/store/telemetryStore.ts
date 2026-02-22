@@ -67,6 +67,18 @@ const defaultState: DroneState = {
 
 export const useTelemetryStore = create<TelemetryStore>((set) => ({
     ...defaultState,
-    updateState: (newState: DroneState) => set(newState),
+    updateState: (incoming: DroneState) =>
+        set(() => ({
+            connected: incoming.connected,
+            last_heartbeat: incoming.last_heartbeat,
+            heartbeat: { ...incoming.heartbeat },
+            attitude: { ...incoming.attitude },
+            position: { ...incoming.position },
+            vfr_hud: { ...incoming.vfr_hud },
+            battery: { ...incoming.battery },
+            gps: { ...incoming.gps },
+            status_text: incoming.status_text,
+            timestamp: incoming.timestamp,
+        })),
     resetState: () => set(defaultState),
 }));

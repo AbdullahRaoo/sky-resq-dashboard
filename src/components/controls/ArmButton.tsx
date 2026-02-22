@@ -1,12 +1,12 @@
 /**
  * ArmButton — safe arm/disarm control with confirmation dialog.
+ * Uses Electron IPC instead of REST API.
  */
 
 "use client";
 
 import { useState, useCallback } from "react";
 import { useConnected, useHeartbeat } from "@/hooks/useTelemetry";
-import { API_URL } from "@/lib/constants";
 
 export default function ArmButton() {
     const connected = useConnected();
@@ -14,16 +14,18 @@ export default function ArmButton() {
     const [loading, setLoading] = useState(false);
     const [showConfirm, setShowConfirm] = useState<"arm" | "disarm" | null>(null);
 
-    const sendCommand = useCallback(async (endpoint: string) => {
+    const sendCommand = useCallback(async (action: "arm" | "disarm") => {
+        if (!window.electron) return;
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/${endpoint}`, { method: "POST" });
-            const data = await res.json();
-            if (!data.success) {
-                console.error(`[CMD] ${endpoint} failed:`, data.message);
+            const result = action === "arm"
+                ? await window.electron.arm()
+                : await window.electron.disarm();
+            if (!result.success) {
+                console.error(`[CMD] ${action} failed:`, result.message);
             }
         } catch (e) {
-            console.error(`[CMD] ${endpoint} error:`, e);
+            console.error(`[CMD] ${action} error:`, e);
         } finally {
             setLoading(false);
             setShowConfirm(null);
