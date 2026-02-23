@@ -1,31 +1,34 @@
 /**
  * Web Serial Service — browser-based SiK radio connection.
  *
- * CONFIRMED FIX for BufferOverrunError:
- * - bufferSize: 1,000,000 (1MB) — Chrome supports up to 16MB
- * - Confirmed working solution from StackOverflow for FTDI/CP2102 USB radios
- * - The default 255-byte buffer overflows in 44ms at 57600 baud
- * - Windows FTDI drivers have a 16ms latency timer that batches data
- * - Combined with React rendering delays, anything under ~500KB overflows
+ * APPROACH: ReadableStream.pipeTo() with native WritableStream
+ * ============================================================
+ * All previous approaches using reader.read() failed with BufferOverrunError
+ * because the JavaScript event loop can't call reader.read() fast enough
+ * when React is doing renders.
  *
- * Architecture: Betaflight-style async generator + 10Hz process timer
+ * pipeTo() uses the browser's NATIVE streaming pipeline which can read
+ * data from the OS serial buffer independently of JS event loop scheduling.
+ * The only JS callback is the WritableStream's write() method, which just
+ * does array.push() — the fastest possible operation.
+ *
+ * If even this fails, the problem is at the OS/USB driver level and
+ * Web Serial cannot handle this radio — a WebSocket relay would be needed.
  */
 
 import { useTelemetryStore } from "@/store/telemetryStore";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let port: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let reader: any = null;
-let reading = false;
 let isConnected = false;
 let processTimer: ReturnType<typeof setInterval> | null = null;
+let abortController: AbortController | null = null;
 
 // Raw byte accumulator
 let rawChunks: Uint8Array[] = [];
 
 // MAVLink reassembly
-const mavBuf = new Uint8Array(4096);
+const mavBuf = new Uint8Array(8192);
 let mavLen = 0;
 
 // Pending telemetry
@@ -57,27 +60,39 @@ export async function webSerialConnect(baudRate: number): Promise<{ success: boo
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         port = await (navigator as any).serial.requestPort();
 
-        // *** THE FIX: bufferSize = 1MB ***
-        // Chrome supports up to 16MB. Default is 255 bytes.
-        // FTDI/CP2102 USB-serial chips + Windows 16ms latency timer
-        // cause data bursts that overflow anything smaller.
-        // Confirmed working: https://stackoverflow.com/questions/tagged/web-serial
+        // Open with large buffer
         await port.open({ baudRate, bufferSize: 1000000 });
 
-        reader = port.readable.getReader();
-
         isConnected = true;
-        reading = true;
         rawChunks = [];
         mavLen = 0;
         pending = {};
         hasPending = false;
 
-        // Start process timer
-        processTimer = setInterval(processAndFlush, 100);
+        // Create abort controller for graceful shutdown
+        abortController = new AbortController();
 
-        // Start read loop
-        readLoop();
+        // *** KEY DIFFERENCE: Use pipeTo() instead of reader.read() ***
+        // pipeTo() uses the browser's native streaming pipeline which
+        // operates more efficiently than manual JS reader.read() loops.
+        const sink = new WritableStream({
+            write(chunk: Uint8Array) {
+                rawChunks.push(chunk);
+            },
+        });
+
+        // pipeTo runs in the background — returns a promise that resolves
+        // when the stream ends or is aborted
+        port.readable.pipeTo(sink, { signal: abortController.signal }).catch((err: Error) => {
+            // AbortError is expected when we disconnect
+            if (err.name !== "AbortError") {
+                console.warn("[WebSerial] Pipe ended:", err.message);
+            }
+            handleStreamEnd();
+        });
+
+        // Start process timer (parse + flush at 10Hz)
+        processTimer = setInterval(processAndFlush, 100);
 
         return { success: true, message: `Connected at ${baudRate} baud` };
     } catch (err: unknown) {
@@ -95,22 +110,39 @@ export async function webSerialConnect(baudRate: number): Promise<{ success: boo
 }
 
 export async function webSerialDisconnect(): Promise<void> {
+    // Abort the pipe first
+    if (abortController) {
+        abortController.abort();
+        abortController = null;
+    }
+    // Small delay for pipe to clean up
+    await new Promise(r => setTimeout(r, 100));
     await cleanup();
     useTelemetryStore.getState().resetState();
 }
 
+function handleStreamEnd() {
+    if (isConnected) {
+        console.warn("[WebSerial] Stream ended unexpectedly");
+        isConnected = false;
+        if (processTimer) {
+            clearInterval(processTimer);
+            processTimer = null;
+        }
+        useTelemetryStore.getState().resetState();
+    }
+}
+
 async function cleanup() {
     isConnected = false;
-    reading = false;
 
+    if (abortController) {
+        abortController.abort();
+        abortController = null;
+    }
     if (processTimer) {
         clearInterval(processTimer);
         processTimer = null;
-    }
-    if (reader) {
-        try { await reader.cancel(); } catch { /* ok */ }
-        try { reader.releaseLock(); } catch { /* ok */ }
-        reader = null;
     }
     if (port) {
         try { await port.close(); } catch { /* ok */ }
@@ -130,30 +162,6 @@ export async function webSerialSend(data: Uint8Array): Promise<void> {
     finally { writer.releaseLock(); }
 }
 
-// ─── Read Loop ─────────────────────────────────────────────
-
-async function readLoop() {
-    try {
-        while (reading && reader) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) rawChunks.push(value);
-        }
-    } catch (error) {
-        console.warn("[WebSerial] Read error:", error);
-    } finally {
-        try { reader?.releaseLock(); } catch { /* ok */ }
-        reader = null;
-    }
-
-    // Stream ended
-    if (isConnected) {
-        console.warn("[WebSerial] Stream ended");
-        await cleanup();
-        useTelemetryStore.getState().resetState();
-    }
-}
-
 // ─── Process + Flush (100ms timer) ─────────────────────────
 
 function processAndFlush() {
@@ -169,6 +177,7 @@ function processAndFlush() {
                 mavBuf.set(chunk, mavLen);
                 mavLen += chunk.length;
             } else {
+                // Buffer full — reset
                 mavLen = 0;
                 if (chunk.length <= mavBuf.length) {
                     mavBuf.set(chunk, 0);
