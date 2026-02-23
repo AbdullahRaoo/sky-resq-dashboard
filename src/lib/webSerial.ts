@@ -1,44 +1,34 @@
 /**
  * Web Serial Service — browser-based SiK radio connection.
  *
- * ROOT CAUSE (finally identified):
- * ================================
- * Calling `store.updateState({ connected: true })` during webSerialConnect()
- * triggers a massive React re-render cascade (50+ component updates). This
- * blocks the single JavaScript thread for 1-2+ seconds. During this time,
- * `reader.read()` cannot execute, the OS serial buffer fills up, and Chrome
- * throws BufferOverrunError which permanently kills the ReadableStream.
+ * Modeled after Betaflight Configurator's WebSerial.js implementation:
+ * - Simple port.open() with DEFAULT bufferSize (no oversized buffers)
+ * - Async generator + for-await-of for proper ReadableStream backpressure
+ * - Raw bytes dispatched, parsing happens separately on a timer
+ * - Minimal code in the read loop
  *
- * SOLUTION:
- * - ZERO React updates during connection. Read loop starts FIRST.
- * - `connected: true` comes from the heartbeat parser 100ms later.
- * - Reader is obtained SYNCHRONOUSLY after port.open(), before anything else.
- * - Hardware flow control (RTS/CTS) tried first, falls back to none.
- * - If overrun still occurs, auto-reopen with `flowControl: "hardware"`.
+ * Reference: github.com/betaflight/betaflight-configurator/blob/master/src/js/protocols/WebSerial.js
  */
 
 import { useTelemetryStore } from "@/store/telemetryStore";
 
+// ─── State ─────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let port: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let reader: any = null;
-let keepReading = false;
+let reading = false;
+let connected = false;
 let processTimer: ReturnType<typeof setInterval> | null = null;
-let activeBaudRate = 57600;
-let overrunCount = 0;
 
-// Ring buffer for raw serial bytes
-const RAW_CAP = 131072;
-const rawBuf = new Uint8Array(RAW_CAP);
-let rawWr = 0;
-let rawRd = 0;
+// Raw byte accumulator — appended by read loop, consumed by parse timer
+let rawChunks: Uint8Array[] = [];
 
 // MAVLink reassembly buffer
-const mavBuf = new Uint8Array(8192);
+const mavBuf = new Uint8Array(4096);
 let mavLen = 0;
 
-// Pending telemetry (plain JS, NO React)
+// Pending telemetry (written by parser, flushed to React)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let pending: any = {};
 let hasPending = false;
@@ -61,18 +51,25 @@ export async function webSerialConnect(baudRate: number): Promise<{ success: boo
     try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         port = await (navigator as any).serial.requestPort();
-        activeBaudRate = baudRate;
-        overrunCount = 0;
 
-        // Try opening with hardware flow control first (SiK radios support RTS/CTS)
-        const opened = await openPort(baudRate, true);
-        if (!opened) {
-            return { success: false, message: "Failed to open serial port" };
-        }
+        // Open with just baudRate — same as Betaflight. No custom bufferSize.
+        await port.open({ baudRate });
 
-        // *** CRITICAL: Do NOT call any React/store updates here! ***
-        // The heartbeat parser will set connected: true on first heartbeat.
-        // This prevents the React re-render cascade from blocking the read loop.
+        // Get reader and writer immediately (Betaflight pattern)
+        reader = port.readable.getReader();
+
+        connected = true;
+        reading = true;
+        rawChunks = [];
+        mavLen = 0;
+        pending = {};
+        hasPending = false;
+
+        // Start process timer (parse + flush at 10Hz)
+        processTimer = setInterval(processAndFlush, 100);
+
+        // Start read loop (Betaflight-style async generator)
+        readLoop();
 
         return { success: true, message: `Connected at ${baudRate} baud` };
     } catch (err: unknown) {
@@ -84,74 +81,30 @@ export async function webSerialConnect(baudRate: number): Promise<{ success: boo
     }
 }
 
-/**
- * Open (or reopen) the port with given settings.
- * Tries hardware flow control first, falls back to none.
- * Sets up reader and starts read loop + process timer.
- */
-async function openPort(baudRate: number, tryHwFlow: boolean): Promise<boolean> {
-    // Reset buffers
-    rawWr = 0;
-    rawRd = 0;
-    mavLen = 0;
-    pending = {};
-    hasPending = false;
-    keepReading = true;
-
-    try {
-        // Try with hardware flow control (prevents overrun at hardware level)
-        await port.open({
-            baudRate,
-            bufferSize: 65536,
-            flowControl: tryHwFlow ? "hardware" : "none",
-        });
-    } catch {
-        if (tryHwFlow) {
-            // Hardware flow control not supported, retry without
-            try {
-                await port.open({ baudRate, bufferSize: 65536, flowControl: "none" });
-            } catch (e2) {
-                console.error("[WebSerial] Open failed:", e2);
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-
-    // *** CRITICAL: Get reader IMMEDIATELY — synchronously after open ***
-    // No other statements between open() and getReader()
-    reader = port.readable.getReader();
-
-    // Start process timer (parses + flushes at 10Hz)
-    if (!processTimer) {
-        processTimer = setInterval(processAndFlush, 100);
-    }
-
-    // Start read loop (async, returns immediately)
-    readLoop();
-
-    return true;
-}
-
 export async function webSerialDisconnect(): Promise<void> {
-    keepReading = false;
+    connected = false;
+    reading = false;
 
     if (processTimer) {
         clearInterval(processTimer);
         processTimer = null;
     }
+
+    // Small delay to let read loop notice reading=false
+    await new Promise(r => setTimeout(r, 50));
+
     if (reader) {
-        try { reader.releaseLock(); } catch { /* */ }
+        try { await reader.cancel(); } catch { /* ok */ }
+        try { if (reader.locked !== false) reader.releaseLock(); } catch { /* ok */ }
         reader = null;
     }
+
     if (port) {
-        try { await port.close(); } catch { /* */ }
+        try { await port.close(); } catch { /* ok */ }
         port = null;
     }
 
-    rawWr = 0;
-    rawRd = 0;
+    rawChunks = [];
     mavLen = 0;
     pending = {};
     hasPending = false;
@@ -165,97 +118,68 @@ export async function webSerialSend(data: Uint8Array): Promise<void> {
     finally { writer.releaseLock(); }
 }
 
-// ─── Layer 1: Read Loop (absolute minimum work) ────────────
+// ─── Read Loop (Betaflight pattern) ────────────────────────
 
-async function readLoop() {
-    while (keepReading) {
-        try {
-            if (!reader && port?.readable) {
-                reader = port.readable.getReader();
-            }
-            if (!reader) {
-                await sleep(50);
-                continue;
-            }
-
-            // TIGHT LOOP: read → copy to ring buf → read
-            // Zero processing, zero state updates, zero React.
-            while (keepReading && reader) {
-                const result = await reader.read();
-                if (result.done) break;
-                const chunk = result.value;
-                if (!chunk || chunk.length === 0) continue;
-
-                // Write to ring buffer (simple overwrite-oldest strategy)
-                const n = chunk.length;
-                if (n >= RAW_CAP) {
-                    // Chunk larger than buffer — just keep the tail
-                    rawBuf.set(chunk.subarray(n - RAW_CAP), 0);
-                    rawWr = 0;
-                    rawRd = 0;
-                } else {
-                    const end = rawWr + n;
-                    if (end <= RAW_CAP) {
-                        rawBuf.set(chunk, rawWr);
-                    } else {
-                        const first = RAW_CAP - rawWr;
-                        rawBuf.set(chunk.subarray(0, first), rawWr);
-                        rawBuf.set(chunk.subarray(first), 0);
-                    }
-                    rawWr = end % RAW_CAP;
-                }
-            }
-        } catch (err) {
-            if (!keepReading) return;
-
-            const msg = err instanceof Error ? err.message : String(err);
-
-            // Release dead reader
-            if (reader) {
-                try { reader.releaseLock(); } catch { /* */ }
-                reader = null;
-            }
-
-            if (msg.includes("overrun") || msg.includes("Overrun")) {
-                overrunCount++;
-                console.warn(`[WebSerial] Buffer overrun #${overrunCount}, reopening...`);
-
-                // Close the broken port
-                try { await port.close(); } catch { /* */ }
-                await sleep(200);
-
-                // Reopen — on repeated overruns, force no flow control
-                // (some USB-serial adapters don't handle HW flow well)
-                const useHwFlow = overrunCount <= 1;
-                const ok = await openPort(activeBaudRate, useHwFlow);
-                if (!ok) {
-                    console.error("[WebSerial] Reopen failed, stopping");
-                    keepReading = false;
-                    return;
-                }
-                return; // openPort() starts a new readLoop()
-            } else {
-                console.warn("[WebSerial] Read error:", msg);
-                await sleep(100);
-            }
+/**
+ * Betaflight-style async generator that yields Uint8Array chunks.
+ * Uses for-await-of which properly handles ReadableStream backpressure.
+ * On error, breaks cleanly and releases the reader lock.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function* streamAsyncIterable(rdr: any) {
+    try {
+        while (reading) {
+            const { done, value } = await rdr.read();
+            if (done) return;
+            yield value;
         }
+    } catch (error) {
+        console.warn("[WebSerial] Read error:", error);
+    } finally {
+        try {
+            if (rdr?.locked !== false) rdr.releaseLock();
+        } catch { /* ok */ }
     }
 }
 
-// ─── Layer 2+3: Process and Flush (100ms timer) ────────────
+/**
+ * Read loop — iterates the async generator.
+ * Only job: push raw chunks to the array. Zero parsing.
+ */
+async function readLoop() {
+    try {
+        for await (const chunk of streamAsyncIterable(reader)) {
+            // Just accumulate the raw Uint8Array — no processing
+            rawChunks.push(chunk);
+        }
+    } catch (error) {
+        console.error("[WebSerial] readLoop error:", error);
+    }
+
+    // If we get here and we're still supposed to be connected, it means
+    // the stream ended unexpectedly
+    if (connected) {
+        console.warn("[WebSerial] Stream ended, disconnecting...");
+        connected = false;
+        reading = false;
+        useTelemetryStore.getState().resetState();
+    }
+}
+
+// ─── Process + Flush Timer (100ms) ─────────────────────────
 
 function processAndFlush() {
-    if (!keepReading) return;
+    if (!connected) return;
 
-    // Drain ring buffer → MAVLink reassembly buffer
-    drainRing();
+    // 1. Drain raw chunks into MAVLink reassembly buffer
+    drainChunks();
 
-    // Parse MAVLink frames → pending
+    // 2. Parse MAVLink frames → pending
     if (mavLen > 0) {
         mavLen = parseFrames(mavBuf, mavLen);
     }
 
-    // Flush to React (single batch update)
+    // 3. Flush pending to React
     if (hasPending) {
         useTelemetryStore.getState().updateState(pending);
         pending = {};
@@ -263,38 +187,26 @@ function processAndFlush() {
     }
 }
 
-function drainRing() {
-    const wr = rawWr;
-    const rd = rawRd;
-    if (wr === rd) return;
+function drainChunks() {
+    if (rawChunks.length === 0) return;
 
-    let avail: number;
-    if (wr >= rd) {
-        avail = wr - rd;
-    } else {
-        avail = (RAW_CAP - rd) + wr;
-    }
+    // Grab all accumulated chunks and clear
+    const chunks = rawChunks;
+    rawChunks = [];
 
-    // Cap to available space in MAVLink buffer
-    const space = mavBuf.length - mavLen;
-    let toRead = Math.min(avail, space);
-    if (toRead <= 0) {
-        // MAVLink buffer full — skip oldest raw data
-        rawRd = wr;
-        mavLen = 0; // reset MAVLink buffer
-        return;
+    // Copy into MAVLink buffer
+    for (const chunk of chunks) {
+        const space = mavBuf.length - mavLen;
+        if (chunk.length <= space) {
+            mavBuf.set(chunk, mavLen);
+            mavLen += chunk.length;
+        } else {
+            // Buffer full — copy what fits, discard rest
+            mavBuf.set(chunk.subarray(0, space), mavLen);
+            mavLen += space;
+            break;
+        }
     }
-
-    let rd2 = rd;
-    if (rd2 + toRead <= RAW_CAP) {
-        mavBuf.set(rawBuf.subarray(rd2, rd2 + toRead), mavLen);
-    } else {
-        const first = RAW_CAP - rd2;
-        mavBuf.set(rawBuf.subarray(rd2, RAW_CAP), mavLen);
-        mavBuf.set(rawBuf.subarray(0, toRead - first), mavLen + first);
-    }
-    mavLen += toRead;
-    rawRd = (rd2 + toRead) % RAW_CAP;
 }
 
 // ─── MAVLink Frame Parser ──────────────────────────────────
@@ -342,7 +254,7 @@ function f32(d: Uint8Array, o: number) { _u[0] = d[o]; _u[1] = d[o + 1]; _u[2] =
 
 const FM: Record<number, string> = { 0: "STABILIZE", 2: "ALT_HOLD", 3: "AUTO", 4: "GUIDED", 5: "LOITER", 6: "RTL", 9: "LAND", 16: "POSHOLD" };
 
-// ─── Message handlers → pending ────────────────────────────
+// ─── Message parsers → pending ─────────────────────────────
 
 function m_hb(d: Uint8Array, o: number) {
     const m = i32(d, o);
@@ -378,7 +290,3 @@ function m_stx(d: Uint8Array, o: number, pl: number) {
     const t = String.fromCharCode(...d.subarray(o + 1, e));
     if (t.length > 0) { pending.status_text = t; hasPending = true; }
 }
-
-// ─── Util ──────────────────────────────────────────────────
-
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
