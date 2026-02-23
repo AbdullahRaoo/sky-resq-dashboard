@@ -1,34 +1,34 @@
 /**
  * Web Serial Service — browser-based SiK radio connection.
  *
- * Modeled after Betaflight Configurator's WebSerial.js implementation:
- * - Simple port.open() with DEFAULT bufferSize (no oversized buffers)
- * - Async generator + for-await-of for proper ReadableStream backpressure
- * - Raw bytes dispatched, parsing happens separately on a timer
- * - Minimal code in the read loop
+ * Based on Betaflight Configurator's WebSerial.js pattern, but adapted
+ * for MAVLink telemetry radios that stream data immediately on open:
  *
- * Reference: github.com/betaflight/betaflight-configurator/blob/master/src/js/protocols/WebSerial.js
+ * - bufferSize: 8192 (1.4 seconds at 57600 baud) — default 255 bytes
+ *   overflows in 44ms which any React render will exceed
+ * - Async generator read loop with for-await-of (Betaflight pattern)
+ * - Processing decoupled on 100ms timer
+ * - Proper port cleanup on ALL error paths (prevents "port already open")
  */
 
 import { useTelemetryStore } from "@/store/telemetryStore";
 
-// ─── State ─────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let port: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let reader: any = null;
 let reading = false;
-let connected = false;
+let isConnected = false;
 let processTimer: ReturnType<typeof setInterval> | null = null;
 
-// Raw byte accumulator — appended by read loop, consumed by parse timer
+// Raw byte accumulator
 let rawChunks: Uint8Array[] = [];
 
-// MAVLink reassembly buffer
+// MAVLink reassembly
 const mavBuf = new Uint8Array(4096);
 let mavLen = 0;
 
-// Pending telemetry (written by parser, flushed to React)
+// Pending telemetry
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let pending: any = {};
 let hasPending = false;
@@ -48,41 +48,65 @@ export async function webSerialConnect(baudRate: number): Promise<{ success: boo
         return { success: false, message: "Web Serial not available. Use Chrome or Edge." };
     }
 
+    // If port is still open from a previous failed connection, close it first
+    if (port) {
+        try { await cleanup(); } catch { /* ignore */ }
+    }
+
     try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         port = await (navigator as any).serial.requestPort();
 
-        // Open with just baudRate — same as Betaflight. No custom bufferSize.
-        await port.open({ baudRate });
+        // bufferSize: 8192 = ~1.4 seconds at 57600 baud
+        // Default is 255 bytes = 44ms, which any React render will exceed.
+        // The SiK radio streams MAVLink continuously on open (unlike Betaflight
+        // FCs which wait for MSP requests), so we need this headroom.
+        await port.open({ baudRate, bufferSize: 8192 });
 
-        // Get reader and writer immediately (Betaflight pattern)
+        // Get reader immediately after open (Betaflight pattern)
         reader = port.readable.getReader();
 
-        connected = true;
+        isConnected = true;
         reading = true;
         rawChunks = [];
         mavLen = 0;
         pending = {};
         hasPending = false;
 
-        // Start process timer (parse + flush at 10Hz)
+        // Start process timer
         processTimer = setInterval(processAndFlush, 100);
 
-        // Start read loop (Betaflight-style async generator)
+        // Start read loop (returns immediately, runs async)
         readLoop();
 
         return { success: true, message: `Connected at ${baudRate} baud` };
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";
+
+        // Clean up on failure
+        await cleanup();
+
         if (msg.includes("No port selected") || msg.includes("cancelled")) {
             return { success: false, message: "No serial port selected" };
+        }
+        if (msg.includes("already open")) {
+            return { success: false, message: "Port busy. Refresh the page and try again." };
         }
         return { success: false, message: `Connection failed: ${msg}` };
     }
 }
 
 export async function webSerialDisconnect(): Promise<void> {
-    connected = false;
+    await cleanup();
+    useTelemetryStore.getState().resetState();
+}
+
+/**
+ * Full cleanup — stops reading, releases reader, closes port.
+ * Safe to call multiple times. Safe to call even if already cleaned up.
+ */
+async function cleanup() {
+    isConnected = false;
     reading = false;
 
     if (processTimer) {
@@ -90,15 +114,14 @@ export async function webSerialDisconnect(): Promise<void> {
         processTimer = null;
     }
 
-    // Small delay to let read loop notice reading=false
-    await new Promise(r => setTimeout(r, 50));
-
+    // Cancel reader (signals for-await-of to exit)
     if (reader) {
         try { await reader.cancel(); } catch { /* ok */ }
-        try { if (reader.locked !== false) reader.releaseLock(); } catch { /* ok */ }
+        try { reader.releaseLock(); } catch { /* ok */ }
         reader = null;
     }
 
+    // Close port
     if (port) {
         try { await port.close(); } catch { /* ok */ }
         port = null;
@@ -108,7 +131,6 @@ export async function webSerialDisconnect(): Promise<void> {
     mavLen = 0;
     pending = {};
     hasPending = false;
-    useTelemetryStore.getState().resetState();
 }
 
 export async function webSerialSend(data: Uint8Array): Promise<void> {
@@ -118,15 +140,14 @@ export async function webSerialSend(data: Uint8Array): Promise<void> {
     finally { writer.releaseLock(); }
 }
 
-// ─── Read Loop (Betaflight pattern) ────────────────────────
+// ─── Read Loop (Betaflight async generator pattern) ────────
 
 /**
- * Betaflight-style async generator that yields Uint8Array chunks.
- * Uses for-await-of which properly handles ReadableStream backpressure.
- * On error, breaks cleanly and releases the reader lock.
+ * Async generator that yields Uint8Array chunks from the reader.
+ * Handles errors gracefully and always releases the reader lock.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function* streamAsyncIterable(rdr: any) {
+async function* streamIterable(rdr: any) {
     try {
         while (reading) {
             const { done, value } = await rdr.read();
@@ -136,76 +157,66 @@ async function* streamAsyncIterable(rdr: any) {
     } catch (error) {
         console.warn("[WebSerial] Read error:", error);
     } finally {
-        try {
-            if (rdr?.locked !== false) rdr.releaseLock();
-        } catch { /* ok */ }
+        try { rdr.releaseLock(); } catch { /* ok */ }
     }
 }
 
 /**
- * Read loop — iterates the async generator.
- * Only job: push raw chunks to the array. Zero parsing.
+ * Read loop — just pushes raw chunks. Zero processing.
+ * If the stream ends or errors, triggers full cleanup.
  */
 async function readLoop() {
     try {
-        for await (const chunk of streamAsyncIterable(reader)) {
-            // Just accumulate the raw Uint8Array — no processing
+        for await (const chunk of streamIterable(reader)) {
             rawChunks.push(chunk);
         }
     } catch (error) {
         console.error("[WebSerial] readLoop error:", error);
     }
 
-    // If we get here and we're still supposed to be connected, it means
-    // the stream ended unexpectedly
-    if (connected) {
-        console.warn("[WebSerial] Stream ended, disconnecting...");
-        connected = false;
-        reading = false;
+    // Stream ended — cleanup everything
+    if (isConnected) {
+        console.warn("[WebSerial] Stream ended unexpectedly");
+        await cleanup();
         useTelemetryStore.getState().resetState();
     }
 }
 
-// ─── Process + Flush Timer (100ms) ─────────────────────────
+// ─── Process + Flush Timer ─────────────────────────────────
 
 function processAndFlush() {
-    if (!connected) return;
+    if (!isConnected) return;
 
-    // 1. Drain raw chunks into MAVLink reassembly buffer
-    drainChunks();
+    // Drain raw chunks into MAVLink buffer
+    if (rawChunks.length > 0) {
+        const chunks = rawChunks;
+        rawChunks = [];
+        for (const chunk of chunks) {
+            const space = mavBuf.length - mavLen;
+            if (chunk.length <= space) {
+                mavBuf.set(chunk, mavLen);
+                mavLen += chunk.length;
+            } else {
+                // Buffer full — reset and start fresh
+                mavLen = 0;
+                if (chunk.length <= mavBuf.length) {
+                    mavBuf.set(chunk, 0);
+                    mavLen = chunk.length;
+                }
+            }
+        }
+    }
 
-    // 2. Parse MAVLink frames → pending
+    // Parse MAVLink frames
     if (mavLen > 0) {
         mavLen = parseFrames(mavBuf, mavLen);
     }
 
-    // 3. Flush pending to React
+    // Flush to React (single batch)
     if (hasPending) {
         useTelemetryStore.getState().updateState(pending);
         pending = {};
         hasPending = false;
-    }
-}
-
-function drainChunks() {
-    if (rawChunks.length === 0) return;
-
-    // Grab all accumulated chunks and clear
-    const chunks = rawChunks;
-    rawChunks = [];
-
-    // Copy into MAVLink buffer
-    for (const chunk of chunks) {
-        const space = mavBuf.length - mavLen;
-        if (chunk.length <= space) {
-            mavBuf.set(chunk, mavLen);
-            mavLen += chunk.length;
-        } else {
-            // Buffer full — copy what fits, discard rest
-            mavBuf.set(chunk.subarray(0, space), mavLen);
-            mavLen += space;
-            break;
-        }
     }
 }
 
@@ -254,12 +265,11 @@ function f32(d: Uint8Array, o: number) { _u[0] = d[o]; _u[1] = d[o + 1]; _u[2] =
 
 const FM: Record<number, string> = { 0: "STABILIZE", 2: "ALT_HOLD", 3: "AUTO", 4: "GUIDED", 5: "LOITER", 6: "RTL", 9: "LAND", 16: "POSHOLD" };
 
-// ─── Message parsers → pending ─────────────────────────────
+// ─── Message parsers ───────────────────────────────────────
 
 function m_hb(d: Uint8Array, o: number) {
-    const m = i32(d, o);
     pending.connected = true;
-    pending.heartbeat = { flight_mode: FM[m] || `MODE_${m}`, armed: !!(d[o + 6] & 0x80), system_status: d[o + 7] };
+    pending.heartbeat = { flight_mode: FM[i32(d, o)] || `MODE_${i32(d, o)}`, armed: !!(d[o + 6] & 0x80), system_status: d[o + 7] };
     hasPending = true;
 }
 function m_ss(d: Uint8Array, o: number) {
