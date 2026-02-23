@@ -13,7 +13,6 @@ contextBridge.exposeInMainWorld("electron", {
     onTelemetry: (callback) => {
         const handler = (_event, data) => callback(data);
         ipcRenderer.on("telemetry-update", handler);
-        // Return cleanup function
         return () => ipcRenderer.removeListener("telemetry-update", handler);
     },
 
@@ -22,6 +21,20 @@ contextBridge.exposeInMainWorld("electron", {
         const handler = (_event, data) => callback(data);
         ipcRenderer.on("connection-status", handler);
         return () => ipcRenderer.removeListener("connection-status", handler);
+    },
+
+    /** Listen for mission progress updates. */
+    onMissionProgress: (callback) => {
+        const handler = (_event, data) => callback(data);
+        ipcRenderer.on("mission-progress", handler);
+        return () => ipcRenderer.removeListener("mission-progress", handler);
+    },
+
+    /** Listen for survivor detection events (from Pi or mock). */
+    onSurvivorDetection: (callback) => {
+        const handler = (_event, data) => callback(data);
+        ipcRenderer.on("survivor-detection", handler);
+        return () => ipcRenderer.removeListener("survivor-detection", handler);
     },
 
     // ── Commands (invoke = async with response) ───────────────
@@ -42,6 +55,20 @@ contextBridge.exposeInMainWorld("electron", {
 
     /** Get available connection profiles. */
     getConnectionProfiles: () => ipcRenderer.invoke("get-connection-profiles"),
+
+    // ── Mission Commands ──────────────────────────────────────
+    /** Upload mission waypoints to the drone. */
+    uploadMission: (waypoints) => ipcRenderer.invoke("mavlink-upload-mission", waypoints),
+
+    /** Clear the current mission on the drone. */
+    clearMission: () => ipcRenderer.invoke("mavlink-clear-mission"),
+
+    /** Fly to a specific GPS coordinate (GUIDED mode). */
+    flyToPoint: (lat, lon, alt) => ipcRenderer.invoke("mavlink-fly-to", { lat, lon, alt }),
+
+    // ── Payload ───────────────────────────────────────────────
+    /** Deploy rescue payload via servo. */
+    deployPayload: () => ipcRenderer.invoke("mavlink-deploy-payload"),
 
     // ── Window controls (frameless) ───────────────────────────
     minimize: () => ipcRenderer.send("window-minimize"),

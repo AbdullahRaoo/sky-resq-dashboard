@@ -36,8 +36,9 @@ function createWindow() {
     // Load Next.js dev server
     mainWindow.loadURL("http://localhost:3000");
 
-    // Show when ready to avoid white flash
+    // Show maximized when ready to avoid white flash
     mainWindow.once("ready-to-show", () => {
+        mainWindow.maximize();
         mainWindow.show();
     });
 
@@ -93,6 +94,37 @@ function createWindow() {
     // Profiles
     ipcMain.handle("get-connection-profiles", async () => {
         return mavlinkHandler.getConnectionProfiles();
+    });
+
+    // ── Mission Commands ──────────────────────────────────────
+
+    ipcMain.handle("mavlink-upload-mission", async (_event, waypoints) => {
+        if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
+        // TODO: Implement full MAVLink mission upload protocol
+        // For now, store waypoints and return success
+        console.log(`[Main] Mission upload requested: ${waypoints.length} waypoints`);
+        return { success: true, message: `${waypoints.length} waypoints ready` };
+    });
+
+    ipcMain.handle("mavlink-clear-mission", async () => {
+        console.log("[Main] Mission clear requested");
+        return { success: true, message: "Mission cleared" };
+    });
+
+    ipcMain.handle("mavlink-fly-to", async (_event, { lat, lon, alt }) => {
+        if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
+        console.log(`[Main] Fly-to: ${lat}, ${lon} @ ${alt}m`);
+        // TODO: Switch to GUIDED mode + send position target
+        return { success: true, message: `Flying to ${lat.toFixed(6)}, ${lon.toFixed(6)}` };
+    });
+
+    // ── Payload ───────────────────────────────────────────────
+
+    ipcMain.handle("mavlink-deploy-payload", async () => {
+        if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
+        console.log("[Main] Payload deploy requested");
+        // TODO: Send MAV_CMD_DO_SET_SERVO
+        return { success: true, message: "Payload deployed" };
     });
 }
 

@@ -1,10 +1,57 @@
 /**
- * Sidebar — minimal icon navigation.
+ * Sidebar — icon navigation that controls the active GCS view.
  */
 
 "use client";
 
+import { useNavStore, type GcsView } from "@/store/navStore";
+import type { ReactNode } from "react";
+
+interface NavItem {
+    id: GcsView;
+    label: string;
+    icon: ReactNode;
+}
+
+const NAV_ITEMS: NavItem[] = [
+    {
+        id: "dashboard",
+        label: "Dashboard",
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+        ),
+    },
+    {
+        id: "mission",
+        label: "Mission Planner",
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+                <line x1="8" y1="2" x2="8" y2="18" />
+                <line x1="16" y1="6" x2="16" y2="22" />
+            </svg>
+        ),
+    },
+    {
+        id: "camera",
+        label: "Camera & Payload",
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+            </svg>
+        ),
+    },
+];
+
 export default function Sidebar() {
+    const { activeView, setView } = useNavStore();
+
     return (
         <aside className="sidebar">
             {/* Logo */}
@@ -18,35 +65,19 @@ export default function Sidebar() {
 
             <div className="sidebar-divider" />
 
-            {/* Dashboard */}
-            <button className="sidebar-btn active" title="Dashboard">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
-                </svg>
-            </button>
-
-            {/* Map */}
-            <button className="sidebar-btn" title="Map">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
-                    <line x1="8" y1="2" x2="8" y2="18" />
-                    <line x1="16" y1="6" x2="16" y2="22" />
-                </svg>
-            </button>
-
-            {/* Mission */}
-            <button className="sidebar-btn" title="Mission">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                    <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
-            </button>
+            {/* Navigation */}
+            {NAV_ITEMS.map((item) => (
+                <button
+                    key={item.id}
+                    className={`sidebar-btn ${activeView === item.id ? "active" : ""}`}
+                    title={item.label}
+                    onClick={() => setView(item.id)}
+                >
+                    {item.icon}
+                </button>
+            ))}
 
             <div style={{ flex: 1 }} />
-
             <div className="sidebar-divider" />
 
             {/* Settings */}

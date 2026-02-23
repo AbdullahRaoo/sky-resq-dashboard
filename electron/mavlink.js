@@ -376,6 +376,38 @@ function buildRequestDataStream(targetSys, targetComp, streamId, rate, startStop
 }
 
 /**
+ * Build a GCS HEARTBEAT message (msgId=0).
+ * Sent at 1Hz to prevent drone failsafe RTL on heartbeat timeout.
+ * Wire payload: custom_mode(u32,4) @ 0 | type(u8,1) @ 4 | autopilot(u8,1) @ 5
+ *   base_mode(u8,1) @ 6 | system_status(u8,1) @ 7 | mavlink_version(u8,1) @ 8
+ * CRC_EXTRA: 50
+ */
+function buildGcsHeartbeat(seq = 0) {
+    const payloadLen = 9;
+    const buf = Buffer.alloc(10 + payloadLen + 2);
+
+    buf[0] = MAVLINK2_STX;
+    buf[1] = payloadLen;
+    buf[2] = 0; buf[3] = 0;
+    buf[4] = seq & 0xff;
+    buf[5] = 255; buf[6] = 0;         // sysId=255 (GCS), compId=0
+    buf[7] = 0; buf[8] = 0; buf[9] = 0; // msgId = 0 (HEARTBEAT)
+
+    let offset = 10;
+    buf.writeUInt32LE(0, offset); offset += 4;  // custom_mode = 0
+    buf.writeUInt8(6, offset); offset += 1;      // type = MAV_TYPE_GCS (6)
+    buf.writeUInt8(8, offset); offset += 1;      // autopilot = MAV_AUTOPILOT_INVALID (8)
+    buf.writeUInt8(0, offset); offset += 1;      // base_mode = 0
+    buf.writeUInt8(4, offset); offset += 1;      // system_status = MAV_STATE_ACTIVE (4)
+    buf.writeUInt8(3, offset);                   // mavlink_version = 3 (v2)
+
+    const crc = mavlinkCrc(buf, payloadLen, 50); // 50 = HEARTBEAT CRC_EXTRA
+    buf.writeUInt16LE(crc, 10 + payloadLen);
+
+    return buf;
+}
+
+/**
  * MAVLink x25 CRC with message CRC_EXTRA seed.
  */
 function mavlinkCrc(buf, payloadLen, crcExtra) {
@@ -414,6 +446,7 @@ class MAVLinkHandler {
         this._targetComponent = 1;
         this._seq = 0;
         this._broadcastInterval = null;
+        this._heartbeatInterval = null; // 1Hz GCS heartbeat to drone
         this._msgCounts = {};  // debug: track message counts
         this._streamsRequested = false; // flag: have we requested telemetry streams?
 
@@ -527,6 +560,7 @@ class MAVLinkHandler {
                     this._state.connected = false;
                     this._state.last_heartbeat = 0;
                     this._streamsRequested = false;
+                    this._stopGcsHeartbeat();
                     this._sendConnectionStatus(false, "Disconnected");
                     resolve({ success: true, message: "Disconnected" });
                 });
@@ -653,6 +687,7 @@ class MAVLinkHandler {
                         if (!this._streamsRequested) {
                             this._streamsRequested = true;
                             this._requestAllStreams();
+                            this._startGcsHeartbeat();
                         }
                     }
                     break;
@@ -766,6 +801,29 @@ class MAVLinkHandler {
                 }
             }, i * 100); // stagger by 100ms
         });
+    }
+
+    /**
+     * Start sending 1Hz GCS heartbeat to the drone.
+     * Prevents Pixhawk from triggering failsafe RTL on heartbeat timeout.
+     */
+    _startGcsHeartbeat() {
+        this._stopGcsHeartbeat();
+        console.log("[MAVLink] Starting GCS heartbeat (1Hz)");
+        this._heartbeatInterval = setInterval(() => {
+            if (this._port && this._port.isOpen) {
+                const buf = buildGcsHeartbeat(this._seq++);
+                this._port.write(buf);
+            }
+        }, 1000); // 1Hz
+    }
+
+    /** Stop the GCS heartbeat timer. */
+    _stopGcsHeartbeat() {
+        if (this._heartbeatInterval) {
+            clearInterval(this._heartbeatInterval);
+            this._heartbeatInterval = null;
+        }
     }
 }
 

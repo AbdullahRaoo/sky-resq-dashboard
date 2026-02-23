@@ -1,6 +1,7 @@
 /**
  * DroneMap — Leaflet map with live drone marker, heading rotation,
- * flight path trail, home marker, free drag, and recenter button.
+ * flight path trail, home marker, free drag, recenter button,
+ * polygon drawing, and waypoint overlay for mission planning.
  */
 
 "use client";
@@ -12,12 +13,15 @@ import {
     Marker,
     Popup,
     Polyline,
+    Polygon as LeafletPolygon,
+    CircleMarker,
     useMap,
     useMapEvents,
     LayersControl,
 } from "react-leaflet";
 import L from "leaflet";
 import { usePosition, useHeartbeat, useVfrHud, useConnected } from "@/hooks/useTelemetry";
+import { useMissionStore } from "@/store/missionStore";
 import {
     MAP_TILES,
     DEFAULT_MAP_CENTER,
@@ -28,29 +32,24 @@ import "leaflet/dist/leaflet.css";
 
 /** Create drone icon SVG rotated by heading. Color adapts to map style. */
 function createDroneIcon(heading: number, dark = true): L.DivIcon {
-    const color = dark ? "#00e5ff" : "#1e40af";
-    const bg = dark ? "rgba(0,229,255,0.15)" : "rgba(30,64,175,0.15)";
-    const glow = dark ? "filter: drop-shadow(0 0 6px rgba(0,229,255,0.5));" : "";
-
-    return L.divIcon({
-        className: "drone-marker-custom",
-        html: `<div style="transform: rotate(${heading}deg); ${glow}">
-            <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="18" cy="18" r="16" fill="${bg}" stroke="${color}" stroke-width="2"/>
-                <polygon points="18,6 24,26 18,21 12,26" fill="${color}" opacity="0.9"/>
-            </svg>
-        </div>`,
-        iconSize: [36, 36],
-        iconAnchor: [18, 18],
+    const color = dark ? "#00e5ff" : "#0a3d62";
+    const rotation = heading || 0;
+    return new L.DivIcon({
+        className: "drone-marker",
+        html: `<svg width="32" height="32" viewBox="0 0 32 32" style="transform: rotate(${rotation}deg)">
+            <polygon points="16,2 26,28 16,22 6,28" fill="${color}" fill-opacity="0.9" stroke="${color}" stroke-width="1.5"/>
+        </svg>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
     });
 }
 
-/** Home icon */
-const homeIcon = L.divIcon({
+/** Home position icon */
+const homeIcon = new L.DivIcon({
     className: "home-marker",
-    html: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="12" cy="12" r="10" fill="rgba(16,185,129,0.2)" stroke="#10b981" stroke-width="2"/>
-        <path d="M12 6l-6 5v7h4v-4h4v4h4v-7l-6-5z" fill="#10b981" opacity="0.8"/>
+    html: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
     </svg>`,
     iconSize: [24, 24],
     iconAnchor: [12, 12],
@@ -79,6 +78,34 @@ function MapFollower({ lat, lon, tracking }: { lat: number; lon: number; trackin
     return null;
 }
 
+/** Handles map clicks for polygon drawing */
+function PolygonDrawHandler() {
+    const drawMode = useMissionStore((s) => s.drawMode);
+    const addPoint = useMissionStore((s) => s.addPolygonPoint);
+    const map = useMap();
+
+    // Change cursor when in draw mode
+    useEffect(() => {
+        const container = map.getContainer();
+        if (drawMode) {
+            container.style.cursor = "crosshair";
+        } else {
+            container.style.cursor = "";
+        }
+        return () => { container.style.cursor = ""; };
+    }, [drawMode, map]);
+
+    useMapEvents({
+        click: (e) => {
+            if (drawMode) {
+                addPoint({ lat: e.latlng.lat, lon: e.latlng.lng });
+            }
+        },
+    });
+
+    return null;
+}
+
 export default function DroneMap() {
     const position = usePosition();
     const heartbeat = useHeartbeat();
@@ -90,6 +117,12 @@ export default function DroneMap() {
     const pathRef = useRef<[number, number][]>([]);
     const homeRef = useRef<[number, number] | null>(null);
 
+    // Mission state
+    const polygon = useMissionStore((s) => s.polygon);
+    const waypoints = useMissionStore((s) => s.waypoints);
+    const currentWP = useMissionStore((s) => s.currentWP);
+    const drawMode = useMissionStore((s) => s.drawMode);
+
     const hasValidPosition = position.lat !== 0 || position.lon !== 0;
     const isDarkMap = activeLayer !== "OpenStreetMap";
 
@@ -98,8 +131,9 @@ export default function DroneMap() {
         if (hasValidPosition) {
             const last = pathRef.current[pathRef.current.length - 1];
             // Only add if position moved (avoid flooding)
-            if (!last || Math.abs(last[0] - position.lat) > 0.000001 || Math.abs(last[1] - position.lon) > 0.000001) {
-                pathRef.current = [...pathRef.current.slice(-200), [position.lat, position.lon]];
+            if (!last || Math.abs(last[0] - position.lat) > 0.00001 || Math.abs(last[1] - position.lon) > 0.00001) {
+                pathRef.current.push([position.lat, position.lon]);
+                if (pathRef.current.length > 200) pathRef.current.shift(); // cap at 200 points
             }
         }
     }, [position.lat, position.lon, hasValidPosition]);
@@ -123,6 +157,14 @@ export default function DroneMap() {
         ? [position.lat, position.lon]
         : DEFAULT_MAP_CENTER;
 
+    // Convert polygon to Leaflet positions
+    const polygonPositions: [number, number][] = polygon.map((p) => [p.lat, p.lon]);
+
+    // Convert waypoints to Leaflet positions
+    const waypointPositions: [number, number][] = waypoints
+        .filter((wp) => wp.command === 16) // NAV_WAYPOINT only
+        .map((wp) => [wp.lat, wp.lon]);
+
     return (
         <div className="map-container">
             <MapContainer
@@ -133,6 +175,7 @@ export default function DroneMap() {
             >
                 <MapInteractionDetector onUserInteract={handleUserInteract} />
                 <MapFollower lat={position.lat} lon={position.lon} tracking={tracking} />
+                <PolygonDrawHandler />
 
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer name={MAP_TILES.dark.name} checked>
@@ -148,6 +191,58 @@ export default function DroneMap() {
                             eventHandlers={{ add: () => setActiveLayer("Satellite") }} />
                     </LayersControl.BaseLayer>
                 </LayersControl>
+
+                {/* Search area polygon */}
+                {polygonPositions.length >= 2 && (
+                    <LeafletPolygon
+                        positions={polygonPositions}
+                        pathOptions={{
+                            color: "#818cf8",
+                            weight: 2,
+                            fillColor: "#818cf8",
+                            fillOpacity: 0.1,
+                            dashArray: polygonPositions.length < 3 ? "6 4" : undefined,
+                        }}
+                    />
+                )}
+
+                {/* Polygon vertex markers */}
+                {drawMode && polygon.map((p, i) => (
+                    <CircleMarker
+                        key={`vertex-${i}`}
+                        center={[p.lat, p.lon]}
+                        radius={5}
+                        pathOptions={{ color: "#818cf8", fillColor: "#818cf8", fillOpacity: 1, weight: 2 }}
+                    />
+                ))}
+
+                {/* Survey waypoint path */}
+                {waypointPositions.length > 1 && (
+                    <Polyline
+                        positions={waypointPositions}
+                        pathOptions={{
+                            color: "#00e5ff",
+                            weight: 1.5,
+                            opacity: 0.5,
+                            dashArray: "4 4",
+                        }}
+                    />
+                )}
+
+                {/* Waypoint markers */}
+                {waypoints.filter((wp) => wp.command === 16).map((wp, i) => (
+                    <CircleMarker
+                        key={`wp-${wp.seq}`}
+                        center={[wp.lat, wp.lon]}
+                        radius={3}
+                        pathOptions={{
+                            color: wp.seq <= currentWP ? "#10b981" : "#00e5ff",
+                            fillColor: wp.seq <= currentWP ? "#10b981" : "#00e5ff",
+                            fillOpacity: wp.seq === currentWP ? 1 : 0.4,
+                            weight: 1,
+                        }}
+                    />
+                ))}
 
                 {/* Flight path trail */}
                 {pathRef.current.length > 1 && (
@@ -208,6 +303,13 @@ export default function DroneMap() {
                         <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
                     </svg>
                 </button>
+            )}
+
+            {/* Draw mode indicator */}
+            {drawMode && (
+                <div className="map-draw-indicator">
+                    Click map to place vertices • {polygon.length} placed
+                </div>
             )}
         </div>
     );

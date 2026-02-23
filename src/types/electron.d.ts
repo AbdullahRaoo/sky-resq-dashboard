@@ -15,10 +15,40 @@ interface ConnectionStatusEvent {
     message: string;
 }
 
+interface MissionProgressEvent {
+    currentWP: number;
+    totalWP: number;
+}
+
+interface SurvivorDetectionEvent {
+    id: string;
+    lat: number;
+    lon: number;
+    count: number;
+    confidence: number;
+}
+
+interface FlyToConfig {
+    lat: number;
+    lon: number;
+    alt: number;
+}
+
+interface MissionWaypoint {
+    seq: number;
+    lat: number;
+    lon: number;
+    alt: number;
+    command: number;
+    holdTime?: number;
+}
+
 interface ElectronAPI {
     // Telemetry
     onTelemetry: (callback: (data: DroneState) => void) => () => void;
     onConnectionStatus: (callback: (data: ConnectionStatusEvent) => void) => () => void;
+    onMissionProgress: (callback: (data: MissionProgressEvent) => void) => () => void;
+    onSurvivorDetection: (callback: (data: SurvivorDetectionEvent) => void) => () => void;
 
     // Commands
     connect: (config: ConnectionConfig) => Promise<CommandResponse>;
@@ -27,6 +57,14 @@ interface ElectronAPI {
     disarm: () => Promise<CommandResponse>;
     setMode: (modeName: string) => Promise<CommandResponse>;
     getConnectionProfiles: () => Promise<ConnectionProfile[]>;
+
+    // Mission
+    uploadMission: (waypoints: MissionWaypoint[]) => Promise<CommandResponse>;
+    clearMission: () => Promise<CommandResponse>;
+    flyToPoint: (lat: number, lon: number, alt: number) => Promise<CommandResponse>;
+
+    // Payload
+    deployPayload: () => Promise<CommandResponse>;
 
     // Window controls
     minimize: () => void;
