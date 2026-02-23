@@ -9,8 +9,8 @@ import { create } from "zustand";
 import type { DroneState } from "@/types/telemetry";
 
 interface TelemetryStore extends DroneState {
-    /** Update the entire state from a WebSocket message. */
-    updateState: (state: DroneState) => void;
+    /** Update state with full or partial telemetry data (deep-merges). */
+    updateState: (state: Partial<DroneState>) => void;
     /** Reset to disconnected defaults. */
     resetState: () => void;
 }
@@ -67,18 +67,18 @@ const defaultState: DroneState = {
 
 export const useTelemetryStore = create<TelemetryStore>((set) => ({
     ...defaultState,
-    updateState: (incoming: DroneState) =>
-        set(() => ({
-            connected: incoming.connected,
-            last_heartbeat: incoming.last_heartbeat,
-            heartbeat: { ...incoming.heartbeat },
-            attitude: { ...incoming.attitude },
-            position: { ...incoming.position },
-            vfr_hud: { ...incoming.vfr_hud },
-            battery: { ...incoming.battery },
-            gps: { ...incoming.gps },
-            status_text: incoming.status_text,
-            timestamp: incoming.timestamp,
+    updateState: (incoming: Partial<DroneState>) =>
+        set((prev) => ({
+            connected: incoming.connected ?? prev.connected,
+            last_heartbeat: incoming.last_heartbeat ?? prev.last_heartbeat,
+            heartbeat: incoming.heartbeat ? { ...prev.heartbeat, ...incoming.heartbeat } : prev.heartbeat,
+            attitude: incoming.attitude ? { ...prev.attitude, ...incoming.attitude } : prev.attitude,
+            position: incoming.position ? { ...prev.position, ...incoming.position } : prev.position,
+            vfr_hud: incoming.vfr_hud ? { ...prev.vfr_hud, ...incoming.vfr_hud } : prev.vfr_hud,
+            battery: incoming.battery ? { ...prev.battery, ...incoming.battery } : prev.battery,
+            gps: incoming.gps ? { ...prev.gps, ...incoming.gps } : prev.gps,
+            status_text: incoming.status_text ?? prev.status_text,
+            timestamp: incoming.timestamp ?? prev.timestamp,
         })),
     resetState: () => set(defaultState),
 }));

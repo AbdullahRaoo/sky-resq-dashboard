@@ -44,7 +44,7 @@ export async function webSerialConnect(baudRate: number): Promise<{ success: boo
         await port.open({ baudRate });
 
         const store = useTelemetryStore.getState();
-        store.updateState({ connected: true } as never);
+        store.updateState({ connected: true });
 
         // Start reading
         keepReading = true;
@@ -97,6 +97,7 @@ async function readLoop() {
     if (!port?.readable) return;
 
     const buffer: number[] = [];
+    const MAX_BUFFER = 2048; // Cap to prevent overrun
 
     while (keepReading && port.readable) {
         try {
@@ -106,18 +107,29 @@ async function readLoop() {
                 const { value, done } = await reader.read();
                 if (done) break;
                 if (value) {
-                    // Accumulate bytes
+                    // Accumulate bytes (cap at MAX_BUFFER)
                     for (let i = 0; i < value.length; i++) {
                         buffer.push(value[i]);
                     }
+                    // Prevent buffer overrun — drop oldest data
+                    if (buffer.length > MAX_BUFFER) {
+                        buffer.splice(0, buffer.length - MAX_BUFFER);
+                    }
 
                     // Try to parse MAVLink frames from buffer
-                    parseMavlinkBuffer(buffer);
+                    try {
+                        parseMavlinkBuffer(buffer);
+                    } catch {
+                        // If parsing fails, clear buffer
+                        buffer.length = 0;
+                    }
                 }
             }
         } catch (err) {
             if (keepReading) {
-                console.error("[WebSerial] Read error:", err);
+                console.warn("[WebSerial] Read error, retrying:", err);
+                // Small delay before retry
+                await new Promise((r) => setTimeout(r, 500));
             }
         } finally {
             if (reader) {
