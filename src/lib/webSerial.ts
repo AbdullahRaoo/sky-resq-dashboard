@@ -3,8 +3,8 @@
  * Uses the Web Serial API (Chrome/Edge only) to connect directly
  * to a USB serial device from the browser without Electron.
  *
- * This enables the GCS to work when deployed to Vercel or any web host
- * for SiK radio connections (serial over USB).
+ * Opens the port with a 32KB read buffer to prevent overrun at 57600 baud.
+ * Uses efficient Uint8Array-based MAVLink v2 parsing.
  */
 
 import { useTelemetryStore } from "@/store/telemetryStore";
@@ -27,7 +27,7 @@ export function isElectron(): boolean {
 
 /**
  * Request a serial port from the user and open it.
- * The browser will show a permission dialog.
+ * Uses a 32KB buffer to prevent overrun at high baud rates.
  */
 export async function webSerialConnect(baudRate: number): Promise<{ success: boolean; message: string }> {
     if (!isWebSerialAvailable()) {
@@ -38,22 +38,20 @@ export async function webSerialConnect(baudRate: number): Promise<{ success: boo
     }
 
     try {
-        // Prompt user to select a serial port
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         port = await (navigator as any).serial.requestPort();
-        await port.open({ baudRate });
+        // 32KB buffer prevents overrun at 57600+ baud
+        await port.open({ baudRate, bufferSize: 32768 });
 
         const store = useTelemetryStore.getState();
         store.updateState({ connected: true });
 
-        // Start reading
         keepReading = true;
         readLoop();
 
         return { success: true, message: `Connected at ${baudRate} baud` };
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";
-        // User cancelled the port picker or port failed to open
         if (msg.includes("No port selected")) {
             return { success: false, message: "No serial port selected" };
         }
@@ -61,43 +59,33 @@ export async function webSerialConnect(baudRate: number): Promise<{ success: boo
     }
 }
 
-/**
- * Disconnect and close the serial port.
- */
+/** Disconnect and close the serial port. */
 export async function webSerialDisconnect(): Promise<void> {
     keepReading = false;
 
     if (reader) {
-        try {
-            await reader.cancel();
-        } catch { /* ignore */ }
+        try { await reader.cancel(); } catch { /* ignore */ }
         reader = null;
     }
 
     if (port) {
-        try {
-            await port.close();
-        } catch { /* ignore */ }
+        try { await port.close(); } catch { /* ignore */ }
         port = null;
     }
 
-    const store = useTelemetryStore.getState();
-    store.resetState();
+    useTelemetryStore.getState().resetState();
 }
 
 /**
- * Continuous read loop — reads raw MAVLink bytes from the serial port.
- * Parses enough of the MAVLink stream to extract basic telemetry.
- *
- * Note: Full MAVLink v2 parsing is complex. This is a simplified parser
- * that looks for HEARTBEAT and basic message IDs. For production use,
- * a proper MAVLink parser library should be integrated.
+ * Read loop — uses a ring buffer approach.
+ * Reads raw bytes, appends to a pre-allocated Uint8Array, and parses in-place.
  */
 async function readLoop() {
     if (!port?.readable) return;
 
-    const buffer: number[] = [];
-    const MAX_BUFFER = 2048; // Cap to prevent overrun
+    // Pre-allocated ring buffer — much faster than array push/splice
+    let buf = new Uint8Array(8192);
+    let len = 0;
 
     while (keepReading && port.readable) {
         try {
@@ -106,46 +94,41 @@ async function readLoop() {
             while (keepReading && reader) {
                 const { value, done } = await reader.read();
                 if (done) break;
-                if (value) {
-                    // Accumulate bytes (cap at MAX_BUFFER)
-                    for (let i = 0; i < value.length; i++) {
-                        buffer.push(value[i]);
-                    }
-                    // Prevent buffer overrun — drop oldest data
-                    if (buffer.length > MAX_BUFFER) {
-                        buffer.splice(0, buffer.length - MAX_BUFFER);
-                    }
+                if (!value || value.length === 0) continue;
 
-                    // Try to parse MAVLink frames from buffer
-                    try {
-                        parseMavlinkBuffer(buffer);
-                    } catch {
-                        // If parsing fails, clear buffer
-                        buffer.length = 0;
+                // Append incoming data to buffer
+                if (len + value.length > buf.length) {
+                    // Either grow the buffer or drop old data
+                    if (len + value.length > 65536) {
+                        // Buffer too large — drop everything and start fresh
+                        len = 0;
+                    } else {
+                        const newBuf = new Uint8Array(Math.max(buf.length * 2, len + value.length));
+                        newBuf.set(buf.subarray(0, len));
+                        buf = newBuf;
                     }
                 }
+                buf.set(value, len);
+                len += value.length;
+
+                // Parse all complete MAVLink frames
+                len = parseFrames(buf, len);
             }
         } catch (err) {
             if (keepReading) {
                 console.warn("[WebSerial] Read error, retrying:", err);
-                // Small delay before retry
-                await new Promise((r) => setTimeout(r, 500));
+                await new Promise((r) => setTimeout(r, 200));
             }
         } finally {
             if (reader) {
-                try {
-                    reader.releaseLock();
-                } catch { /* ignore */ }
+                try { reader.releaseLock(); } catch { /* ignore */ }
                 reader = null;
             }
         }
     }
 }
 
-/**
- * Send raw bytes over the serial port.
- * Used for sending MAVLink commands (heartbeat, arm, mode change, etc.)
- */
+/** Send raw bytes over the serial port. */
 export async function webSerialSend(data: Uint8Array): Promise<void> {
     if (!port?.writable) return;
     const writer = port.writable.getWriter();
@@ -156,95 +139,97 @@ export async function webSerialSend(data: Uint8Array): Promise<void> {
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+// MAVLink v2 Frame Parser (Uint8Array-based, zero-copy)
+// ═══════════════════════════════════════════════════════════
+
+const MAVLINK_V1_START = 0xfe;
+const MAVLINK_V2_START = 0xfd;
+
 /**
- * Simplified MAVLink v2 buffer parser.
- * Looks for MAVLink v2 start byte (0xFD) and extracts message ID + payload.
- *
- * This is a basic implementation that extracts HEARTBEAT (msg_id=0),
- * GLOBAL_POSITION_INT (33), ATTITUDE (30), VFR_HUD (74),
- * SYS_STATUS (1), GPS_RAW_INT (24), and STATUSTEXT (253).
+ * Parse complete MAVLink frames from a Uint8Array buffer.
+ * Returns the number of unprocessed bytes remaining.
  */
-function parseMavlinkBuffer(buffer: number[]) {
+function parseFrames(buf: Uint8Array, len: number): number {
     const store = useTelemetryStore.getState();
+    let pos = 0;
 
-    while (buffer.length >= 12) {
-        // Find MAVLink v2 start byte
-        const startIdx = buffer.indexOf(0xfd);
-        if (startIdx === -1) {
-            buffer.length = 0;
-            return;
+    while (pos < len) {
+        // Scan for a start byte
+        while (pos < len && buf[pos] !== MAVLINK_V2_START && buf[pos] !== MAVLINK_V1_START) {
+            pos++;
         }
-        if (startIdx > 0) {
-            buffer.splice(0, startIdx);
+        if (pos >= len) break;
+
+        const isV2 = buf[pos] === MAVLINK_V2_START;
+        const headerLen = isV2 ? 10 : 6;
+        const crcLen = 2;
+
+        // Need at least header + CRC
+        if (pos + headerLen + crcLen > len) break;
+
+        const payloadLen = buf[pos + 1];
+        const frameLen = headerLen + payloadLen + crcLen;
+
+        // Need the full frame
+        if (pos + frameLen > len) break;
+
+        // Extract message ID
+        let msgId: number;
+        if (isV2) {
+            msgId = buf[pos + 7] | (buf[pos + 8] << 8) | (buf[pos + 9] << 16);
+        } else {
+            msgId = buf[pos + 5];
         }
 
-        // MAVLink v2 header: 10 bytes + payload_len + 2 CRC
-        if (buffer.length < 12) return;
-
-        const payloadLen = buffer[1];
-        const frameLen = 12 + payloadLen;
-        if (buffer.length < frameLen) return;
-
-        // Extract message ID (3 bytes, little-endian, but typically < 256)
-        const msgId = buffer[7] | (buffer[8] << 8) | (buffer[9] << 16);
-        const payload = buffer.slice(10, 10 + payloadLen);
+        // Payload starts after header
+        const payloadStart = pos + headerLen;
 
         // Parse known messages
         try {
             switch (msgId) {
-                case 0: // HEARTBEAT
-                    parseHeartbeat(payload, store);
-                    break;
-                case 1: // SYS_STATUS
-                    parseSysStatus(payload, store);
-                    break;
-                case 24: // GPS_RAW_INT
-                    parseGpsRawInt(payload, store);
-                    break;
-                case 30: // ATTITUDE
-                    parseAttitude(payload, store);
-                    break;
-                case 33: // GLOBAL_POSITION_INT
-                    parseGlobalPositionInt(payload, store);
-                    break;
-                case 74: // VFR_HUD
-                    parseVfrHud(payload, store);
-                    break;
-                case 253: // STATUSTEXT
-                    parseStatusText(payload, store);
-                    break;
+                case 0: parseHeartbeat(buf, payloadStart, payloadLen, store); break;
+                case 1: parseSysStatus(buf, payloadStart, payloadLen, store); break;
+                case 24: parseGpsRawInt(buf, payloadStart, payloadLen, store); break;
+                case 30: parseAttitude(buf, payloadStart, payloadLen, store); break;
+                case 33: parseGlobalPositionInt(buf, payloadStart, payloadLen, store); break;
+                case 74: parseVfrHud(buf, payloadStart, payloadLen, store); break;
+                case 253: parseStatusText(buf, payloadStart, payloadLen, store); break;
             }
         } catch {
             // Skip malformed messages
         }
 
-        buffer.splice(0, frameLen);
+        pos += frameLen;
     }
+
+    // Compact: move unprocessed bytes to front
+    if (pos > 0 && pos < len) {
+        buf.copyWithin(0, pos, len);
+    }
+    return len - pos;
 }
 
-// ─── Individual Message Parsers ────────────────────────────
+// ─── Binary readers (Uint8Array, zero-copy) ────────────────
 
-function readInt32LE(data: number[], offset: number): number {
-    return data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24);
+function i32(d: Uint8Array, o: number): number {
+    return d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | (d[o + 3] << 24);
+}
+function u16(d: Uint8Array, o: number): number {
+    return d[o] | (d[o + 1] << 8);
+}
+function i16(d: Uint8Array, o: number): number {
+    const v = u16(d, o);
+    return v > 0x7fff ? v - 0x10000 : v;
 }
 
-function readUint16LE(data: number[], offset: number): number {
-    return data[offset] | (data[offset + 1] << 8);
-}
-
-function readInt16LE(data: number[], offset: number): number {
-    const val = readUint16LE(data, offset);
-    return val > 0x7fff ? val - 0x10000 : val;
-}
-
-function readFloatLE(data: number[], offset: number): number {
-    const buf = new ArrayBuffer(4);
-    const view = new DataView(buf);
-    view.setUint8(0, data[offset]);
-    view.setUint8(1, data[offset + 1]);
-    view.setUint8(2, data[offset + 2]);
-    view.setUint8(3, data[offset + 3]);
-    return view.getFloat32(0, true);
+// Shared DataView for float parsing
+const _fb = new ArrayBuffer(4);
+const _fv = new DataView(_fb);
+const _fu = new Uint8Array(_fb);
+function f32(d: Uint8Array, o: number): number {
+    _fu[0] = d[o]; _fu[1] = d[o + 1]; _fu[2] = d[o + 2]; _fu[3] = d[o + 3];
+    return _fv.getFloat32(0, true);
 }
 
 const FLIGHT_MODES: Record<number, string> = {
@@ -253,82 +238,85 @@ const FLIGHT_MODES: Record<number, string> = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseHeartbeat(p: number[], store: any) {
-    if (p.length < 9) return;
-    const customMode = readInt32LE(p, 0);
-    const baseMode = p[6];
+function parseHeartbeat(d: Uint8Array, o: number, plen: number, store: any) {
+    if (plen < 9) return;
+    const customMode = i32(d, o);
+    const baseMode = d[o + 6];
     const armed = !!(baseMode & 0x80);
     const mode = FLIGHT_MODES[customMode] || `MODE_${customMode}`;
     store.updateState({
         connected: true,
-        heartbeat: { flight_mode: mode, armed, system_status: p[7] },
+        heartbeat: { flight_mode: mode, armed, system_status: d[o + 7] },
     });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseSysStatus(p: number[], store: any) {
-    if (p.length < 31) return;
-    const voltage = readUint16LE(p, 14) / 1000; // mV → V
-    const current = readInt16LE(p, 16) / 100;    // cA → A
-    const remaining = p[30];                      // %
+function parseSysStatus(d: Uint8Array, o: number, plen: number, store: any) {
+    if (plen < 31) return;
+    const voltage = u16(d, o + 14) / 1000;
+    const current = i16(d, o + 16) / 100;
+    const remaining = d[o + 30];
     store.updateState({
         battery: { voltage, current, remaining: remaining === 255 ? -1 : remaining },
     });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseGpsRawInt(p: number[], store: any) {
-    if (p.length < 30) return;
-    const fixType = p[28];
-    const sats = p[29];
+function parseGpsRawInt(d: Uint8Array, o: number, plen: number, store: any) {
+    if (plen < 30) return;
     store.updateState({
-        gps: { fix_type: fixType, satellites_visible: sats },
+        gps: { fix_type: d[o + 28], satellites_visible: d[o + 29] },
     });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseAttitude(p: number[], store: any) {
-    if (p.length < 28) return;
-    const roll = readFloatLE(p, 4) * (180 / Math.PI);
-    const pitch = readFloatLE(p, 8) * (180 / Math.PI);
-    const yaw = readFloatLE(p, 12) * (180 / Math.PI);
+function parseAttitude(d: Uint8Array, o: number, plen: number, store: any) {
+    if (plen < 28) return;
     store.updateState({
-        attitude: { roll, pitch, yaw },
+        attitude: {
+            roll: f32(d, o + 4) * (180 / Math.PI),
+            pitch: f32(d, o + 8) * (180 / Math.PI),
+            yaw: f32(d, o + 12) * (180 / Math.PI),
+        },
     });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseGlobalPositionInt(p: number[], store: any) {
-    if (p.length < 28) return;
-    const lat = readInt32LE(p, 4) / 1e7;
-    const lon = readInt32LE(p, 8) / 1e7;
-    const alt = readInt32LE(p, 12) / 1000;
-    const relAlt = readInt32LE(p, 16) / 1000;
+function parseGlobalPositionInt(d: Uint8Array, o: number, plen: number, store: any) {
+    if (plen < 28) return;
     store.updateState({
-        position: { lat, lon, alt, relative_alt: relAlt },
+        position: {
+            lat: i32(d, o + 4) / 1e7,
+            lon: i32(d, o + 8) / 1e7,
+            alt: i32(d, o + 12) / 1000,
+            relative_alt: i32(d, o + 16) / 1000,
+        },
     });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseVfrHud(p: number[], store: any) {
-    if (p.length < 20) return;
-    const airspeed = readFloatLE(p, 0);
-    const groundspeed = readFloatLE(p, 4);
-    const heading = readInt16LE(p, 8);
-    const throttle = readUint16LE(p, 10);
-    const alt = readFloatLE(p, 12);
-    const climb = readFloatLE(p, 16);
+function parseVfrHud(d: Uint8Array, o: number, plen: number, store: any) {
+    if (plen < 20) return;
     store.updateState({
-        vfr_hud: { airspeed, groundspeed, heading, throttle, alt, climb },
+        vfr_hud: {
+            airspeed: f32(d, o),
+            groundspeed: f32(d, o + 4),
+            heading: i16(d, o + 8),
+            throttle: u16(d, o + 10),
+            alt: f32(d, o + 12),
+            climb: f32(d, o + 16),
+        },
     });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseStatusText(p: number[], store: any) {
-    if (p.length < 2) return;
-    // severity = p[0], text starts at p[1]
-    const textBytes = p.slice(1).filter((b) => b !== 0);
-    const text = String.fromCharCode(...textBytes);
+function parseStatusText(d: Uint8Array, o: number, plen: number, store: any) {
+    if (plen < 2) return;
+    // severity = d[o], text starts at d[o+1]
+    let end = o + 1;
+    const limit = o + plen;
+    while (end < limit && d[end] !== 0) end++;
+    const text = String.fromCharCode(...d.subarray(o + 1, end));
     if (text.length > 0) {
         store.updateState({ status_text: text });
     }
