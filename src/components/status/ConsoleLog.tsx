@@ -18,7 +18,7 @@ let logCounter = 0;
 
 export default function ConsoleLog() {
     const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [collapsed, setCollapsed] = useState(false);
+    const [collapsed, setCollapsed] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
 
     // Watch for status_text changes

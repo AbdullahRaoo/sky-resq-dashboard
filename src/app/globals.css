@@ -2605,3 +2605,423 @@ body {
     display: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   INSTRUMENT BLOCKS — Aligned attitude + compass
+   ═══════════════════════════════════════════════════════════ */
+
+.orientation-row {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.instrument-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.instrument-block .attitude-indicator,
+.instrument-block .compass-ring-wrapper {
+  width: 130px;
+  height: 130px;
+}
+
+.instrument-readout {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.instrument-readout--heading {
+  gap: 6px;
+}
+
+.instrument-readout__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.instrument-readout__label {
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.instrument-readout__value {
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-bright);
+}
+
+.instrument-readout__value--large {
+  font-size: 0.85rem;
+}
+
+.instrument-readout__dir {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--accent-cyan);
+  letter-spacing: 0.04em;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SETTINGS DIALOG
+   ═══════════════════════════════════════════════════════════ */
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in 0.2s ease;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.settings-dialog {
+  width: 720px;
+  max-width: 90vw;
+  max-height: 80vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-header__title {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--text-bright);
+  letter-spacing: 0.04em;
+}
+
+.settings-header__close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px;
+  transition: var(--transition-fast);
+}
+
+.settings-header__close:hover {
+  color: var(--text-bright);
+}
+
+.settings-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.settings-tabs {
+  width: 160px;
+  border-right: 1px solid var(--border-subtle);
+  padding: 8px 0;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  text-align: left;
+}
+
+.settings-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-tab--active {
+  color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.06);
+  border-right: 2px solid var(--accent-cyan);
+}
+
+.settings-tab__icon {
+  font-size: 0.9rem;
+}
+
+.settings-content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-section__title {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  margin-top: 8px;
+}
+
+.settings-section__title:first-child {
+  margin-top: 0;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.settings-input {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+  color: var(--text-bright);
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+  transition: var(--transition-fast);
+}
+
+.settings-input:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.1);
+}
+
+.settings-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings-hint {
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.settings-theme-toggle {
+  display: flex;
+  gap: 6px;
+}
+
+.settings-theme-btn {
+  flex: 1;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.settings-theme-btn:hover {
+  border-color: var(--accent-cyan);
+}
+
+.settings-theme-btn--active {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.08);
+  color: var(--accent-cyan);
+}
+
+.settings-about {
+  padding: 12px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(148, 163, 184, 0.06);
+}
+
+.settings-about p {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  line-height: 1.8;
+  margin: 0;
+}
+
+.settings-about strong {
+  color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT THEME
+   ═══════════════════════════════════════════════════════════ */
+
+[data-theme="light"] {
+  --bg-primary: #f0f2f5;
+  --bg-secondary: #ffffff;
+  --bg-elevated: #f8f9fa;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f0f4ff;
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-accent: rgba(0, 0, 0, 0.15);
+
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a5568;
+  --text-muted: #718096;
+  --text-bright: #0a0a1a;
+
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .electron-app {
+  background: var(--bg-primary);
+}
+
+[data-theme="light"] .sidebar {
+  background: #ffffff;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .sidebar-logo svg {
+  color: var(--accent-cyan);
+}
+
+[data-theme="light"] .header {
+  background: #ffffff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .right-panel {
+  background: #ffffff;
+  border-left: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .console-panel {
+  background: #ffffff;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .attitude-indicator {
+  background: radial-gradient(circle at 50% 30%, #4a90d9, #2171b5);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .attitude-sky {
+  background: linear-gradient(to bottom,
+      #5fa8e6 0%,
+      #87ceeb 40%,
+      #8B7914 40%,
+      #a0915a 100%);
+}
+
+[data-theme="light"] .compass-ring-wrapper {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .compass-ring {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .hud-card {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .hud-card:hover {
+  background: #f0f4ff;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .panel-section {
+  border-color: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .settings-dialog {
+  background: #ffffff;
+}
+
+[data-theme="light"] .settings-input {
+  background: #f0f2f5;
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #1a1a2e;
+}
+
+[data-theme="light"] .link-card {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="light"] .mission-checklist {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="light"] .mission-stat {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="light"] .alert-toast {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="light"] .video-feed {
+  background: #1a1a2e;
+}
+
+[data-theme="light"] .map-draw-indicator {
+  background: rgba(99, 102, 241, 0.95);
+}

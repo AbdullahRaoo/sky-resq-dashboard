@@ -1,19 +1,18 @@
 /**
  * Dashboard Page — Enterprise GCS layout.
- * Sidebar switches between Dashboard, Mission, and Camera views.
- * Right panel adapts to the active view.
+ * True fullscreen, sidebar view switching, theme support.
  */
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useElectronTelemetry } from "@/hooks/useElectronTelemetry";
 import { useStatusText } from "@/hooks/useTelemetry";
 import { useNavStore } from "@/store/navStore";
+import { useThemeStore } from "@/store/themeStore";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
-import TitleBar from "@/components/layout/TitleBar";
 import AttitudeIndicator from "@/components/hud/AttitudeIndicator";
 import CompassRose from "@/components/hud/CompassRose";
 import HudCards from "@/components/hud/HudCards";
@@ -29,6 +28,7 @@ import AlertPanel from "@/components/status/AlertPanel";
 import MissionPanel from "@/components/mission/MissionPanel";
 import VideoFeed from "@/components/video/VideoFeed";
 import ConsoleLog from "@/components/status/ConsoleLog";
+import SettingsDialog from "@/components/settings/SettingsDialog";
 
 const DroneMap = dynamic(
   () => import("@/components/map/DroneMap"),
@@ -39,14 +39,19 @@ export default function DashboardPage() {
   useElectronTelemetry();
   const statusText = useStatusText();
   const activeView = useNavStore((s) => s.activeView);
+  const theme = useThemeStore((s) => s.theme);
   const [videoOpen, setVideoOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Apply theme class to root
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
 
   return (
     <div className="electron-app">
-      <TitleBar />
-
       <div className="dashboard-layout">
-        <Sidebar />
+        <Sidebar onSettingsClick={() => setSettingsOpen(true)} />
         <Header />
 
         <main className="main-content">
@@ -54,7 +59,6 @@ export default function DashboardPage() {
           <div className="map-area">
             <DroneMap />
 
-            {/* Video feed overlay (bottom-left of map) */}
             {videoOpen && activeView === "dashboard" && (
               <div className="video-overlay">
                 <VideoFeed />
@@ -73,13 +77,11 @@ export default function DashboardPage() {
               </button>
             )}
 
-            {/* Alert toasts overlay */}
             <AlertPanel />
           </div>
 
           {/* ── Right Panel ──────────────────────────── */}
           <div className="right-panel">
-            {/* View title */}
             <div className="right-panel__view-header">
               {activeView === "dashboard" && "Dashboard"}
               {activeView === "mission" && "Mission Planner"}
@@ -140,9 +142,7 @@ export default function DashboardPage() {
               )}
 
               {/* ══ MISSION VIEW ══ */}
-              {activeView === "mission" && (
-                <MissionPanel />
-              )}
+              {activeView === "mission" && <MissionPanel />}
 
               {/* ══ CAMERA VIEW ══ */}
               {activeView === "camera" && (
@@ -151,12 +151,10 @@ export default function DashboardPage() {
                     <div className="panel-section__title">Live Camera Feed</div>
                     <VideoFeed />
                   </div>
-
                   <div className="panel-section">
                     <div className="panel-section__title">Gimbal Control</div>
                     <GimbalControl />
                   </div>
-
                   <div className="panel-section">
                     <div className="panel-section__title">Rescue Payload</div>
                     <PayloadControl />
@@ -169,6 +167,9 @@ export default function DashboardPage() {
 
         <ConsoleLog />
       </div>
+
+      {/* Settings Popup */}
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

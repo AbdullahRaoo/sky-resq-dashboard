@@ -22,6 +22,7 @@ function createWindow() {
         minWidth: 1024,
         minHeight: 700,
         frame: false,
+        fullscreen: true,
         backgroundColor: "#0a0e17",
         icon: path.join(__dirname, "public", "favicon.ico"),
         webPreferences: {
@@ -36,9 +37,8 @@ function createWindow() {
     // Load Next.js dev server
     mainWindow.loadURL("http://localhost:3000");
 
-    // Show maximized when ready to avoid white flash
+    // Show fullscreen when ready
     mainWindow.once("ready-to-show", () => {
-        mainWindow.maximize();
         mainWindow.show();
     });
 
