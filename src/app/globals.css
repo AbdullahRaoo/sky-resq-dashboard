@@ -348,6 +348,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overflow-x: hidden;
   z-index: 10;
 }
 
@@ -2914,7 +2915,8 @@ body {
 }
 
 .connection-info__port,
-.connection-info__baud {
+.connection-info__baud,
+.connection-info__mode {
   padding: 3px 8px;
   border-radius: var(--radius-sm);
   background: rgba(0, 229, 255, 0.08);
@@ -2923,6 +2925,35 @@ body {
   font-size: 0.65rem;
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
+}
+
+.connection-info__mode {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.2);
+  color: var(--accent-indigo);
+}
+
+.connection-warning {
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  color: var(--accent-amber);
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.connection-error {
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: var(--accent-red);
+  font-size: 0.6rem;
+  font-weight: 600;
 }
 
 /* ── Failsafe Diagram ─────────────────────────────────────── */
