@@ -2906,122 +2906,422 @@ body {
   color: var(--text-primary);
 }
 
+/* ── Connection Info Badges ────────────────────────────────── */
+.connection-info {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.connection-info__port,
+.connection-info__baud {
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.15);
+  color: var(--accent-cyan);
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Failsafe Diagram ─────────────────────────────────────── */
+.settings-failsafe-diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.3);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(148, 163, 184, 0.06);
+  margin-bottom: 8px;
+}
+
+.failsafe-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.failsafe-step--critical {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.failsafe-step__time {
+  font-size: 1rem;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent-amber);
+}
+
+.failsafe-step--critical .failsafe-step__time {
+  color: var(--accent-red);
+}
+
+.failsafe-step__action {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.failsafe-step__desc {
+  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 0.55rem;
+}
+
+.failsafe-arrow {
+  font-size: 1.2rem;
+  color: var(--text-muted);
+}
+
 /* ═══════════════════════════════════════════════════════════
-   LIGHT THEME
+   LIGHT THEME — Comprehensive
    ═══════════════════════════════════════════════════════════ */
 
 [data-theme="light"] {
   --bg-primary: #f0f2f5;
   --bg-secondary: #ffffff;
-  --bg-elevated: #f8f9fa;
+  --bg-elevated: #f8f9fb;
   --bg-card: #ffffff;
-  --bg-card-hover: #f0f4ff;
+  --bg-card-hover: #eef2ff;
 
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-accent: rgba(0, 0, 0, 0.15);
+  --border-subtle: rgba(0, 0, 0, 0.10);
+  --border-accent: rgba(0, 0, 0, 0.18);
 
   --text-primary: #1a1a2e;
-  --text-secondary: #4a5568;
-  --text-muted: #718096;
-  --text-bright: #0a0a1a;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --text-bright: #111827;
 
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+
+  --accent-cyan: #0891b2;
+  --accent-emerald: #059669;
+  --accent-amber: #d97706;
+  --accent-red: #dc2626;
+  --accent-indigo: #4338ca;
 }
 
 [data-theme="light"] .electron-app {
-  background: var(--bg-primary);
+  background: #f0f2f5;
 }
 
+/* Sidebar */
 [data-theme="light"] .sidebar {
   background: #ffffff;
-  border-right: 1px solid rgba(0, 0, 0, 0.06);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-[data-theme="light"] .sidebar-logo svg {
-  color: var(--accent-cyan);
+[data-theme="light"] .sidebar-btn {
+  color: #6b7280;
 }
 
+[data-theme="light"] .sidebar-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #111827;
+}
+
+[data-theme="light"] .sidebar-btn.active {
+  background: rgba(8, 145, 178, 0.08);
+  color: #0891b2;
+}
+
+/* Header */
 [data-theme="light"] .header {
   background: #ffffff;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+[data-theme="light"] .header-brand__name {
+  color: #111827;
+}
+
+[data-theme="light"] .status-chip {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #374151;
+}
+
+[data-theme="light"] .header-telemetry__value {
+  color: #111827;
+}
+
+[data-theme="light"] .header-telemetry__label {
+  color: #6b7280;
+}
+
+/* Right Panel */
 [data-theme="light"] .right-panel {
   background: #ffffff;
-  border-left: 1px solid rgba(0, 0, 0, 0.06);
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-[data-theme="light"] .console-panel {
-  background: #ffffff;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .attitude-indicator {
-  background: radial-gradient(circle at 50% 30%, #4a90d9, #2171b5);
-  border-color: rgba(0, 0, 0, 0.12);
-}
-
-[data-theme="light"] .attitude-sky {
-  background: linear-gradient(to bottom,
-      #5fa8e6 0%,
-      #87ceeb 40%,
-      #8B7914 40%,
-      #a0915a 100%);
-}
-
-[data-theme="light"] .compass-ring-wrapper {
-  border-color: rgba(0, 0, 0, 0.1);
-}
-
-[data-theme="light"] .compass-ring {
-  border-color: rgba(0, 0, 0, 0.15);
-}
-
-[data-theme="light"] .hud-card {
-  background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .hud-card:hover {
-  background: #f0f4ff;
-  border-color: rgba(0, 0, 0, 0.12);
+[data-theme="light"] .right-panel__view-header {
+  background: rgba(8, 145, 178, 0.04);
+  color: #0891b2;
+  border-bottom-color: rgba(0, 0, 0, 0.08);
 }
 
 [data-theme="light"] .panel-section {
-  border-color: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
-[data-theme="light"] .settings-dialog {
+[data-theme="light"] .panel-section__title {
+  color: #6b7280;
+}
+
+/* Console */
+[data-theme="light"] .console-panel {
   background: #ffffff;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-[data-theme="light"] .settings-input {
-  background: #f0f2f5;
-  border-color: rgba(0, 0, 0, 0.1);
-  color: #1a1a2e;
+[data-theme="light"] .console-panel__header {
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
+/* HUD Cards */
+[data-theme="light"] .hud-card {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .hud-card:hover {
+  background: #f8faff;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .hud-card__value {
+  color: #111827;
+}
+
+[data-theme="light"] .hud-card__label {
+  color: #6b7280;
+}
+
+[data-theme="light"] .hud-card__unit {
+  color: #9ca3af;
+}
+
+/* Attitude indicator */
+[data-theme="light"] .attitude-indicator {
+  border-color: rgba(0, 0, 0, 0.15);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Compass */
+[data-theme="light"] .compass-ring-wrapper {
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .compass-ring {
+  border-color: rgba(0, 0, 0, 0.18);
+}
+
+[data-theme="light"] .compass-cardinal__label {
+  color: #374151;
+}
+
+[data-theme="light"] .compass-cardinal--north .compass-cardinal__label {
+  color: #dc2626;
+}
+
+/* Instrument readouts */
+[data-theme="light"] .instrument-readout__value {
+  color: #111827;
+}
+
+[data-theme="light"] .instrument-readout__dir {
+  color: #0891b2;
+}
+
+/* Buttons */
+[data-theme="light"] .btn--connect {
+  background: #059669;
+  border-color: #059669;
+  color: #ffffff;
+}
+
+[data-theme="light"] .btn--disconnect {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+/* Connection badges */
+[data-theme="light"] .connection-info__port,
+[data-theme="light"] .connection-info__baud {
+  background: rgba(8, 145, 178, 0.08);
+  border-color: rgba(8, 145, 178, 0.2);
+  color: #0891b2;
+}
+
+/* Link cards */
 [data-theme="light"] .link-card {
   background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
+[data-theme="light"] .link-card__name {
+  color: #111827;
+}
+
+/* Mission elements */
 [data-theme="light"] .mission-checklist {
   background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
 [data-theme="light"] .mission-stat {
   background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
+[data-theme="light"] .mission-config-input {
+  background: #f0f2f5;
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #111827;
+}
+
+[data-theme="light"] .mission-phase-dot {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #6b7280;
+}
+
+[data-theme="light"] .mission-phase-title {
+  color: #111827;
+}
+
+[data-theme="light"] .mission-warning {
+  background: rgba(217, 119, 6, 0.08);
+  border-color: rgba(217, 119, 6, 0.2);
+  color: #92400e;
+}
+
+/* Settings dialog */
+[data-theme="light"] .settings-dialog {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .settings-tabs {
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .settings-tab:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .settings-tab--active {
+  background: rgba(8, 145, 178, 0.06);
+  color: #0891b2;
+  border-right-color: #0891b2;
+}
+
+[data-theme="light"] .settings-input {
+  background: #f3f4f6;
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #111827;
+}
+
+[data-theme="light"] .settings-section__title {
+  color: #374151;
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .settings-about {
+  background: #f3f4f6;
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .settings-about p {
+  color: #374151;
+}
+
+[data-theme="light"] .settings-about strong {
+  color: #111827;
+}
+
+[data-theme="light"] .settings-theme-btn {
+  background: #f3f4f6;
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #374151;
+}
+
+[data-theme="light"] .settings-failsafe-diagram {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Alerts */
 [data-theme="light"] .alert-toast {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
+[data-theme="light"] .alert-toast__title {
+  color: #111827;
+}
+
+[data-theme="light"] .alert-toast__msg {
+  color: #374151;
+}
+
+/* Video */
 [data-theme="light"] .video-feed {
   background: #1a1a2e;
 }
 
-[data-theme="light"] .map-draw-indicator {
-  background: rgba(99, 102, 241, 0.95);
+[data-theme="light"] .video-overlay {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Map controls */
+[data-theme="light"] .video-toggle-btn {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #374151;
+}
+
+[data-theme="light"] .map-recenter-btn {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #374151;
+}
+
+/* Quick actions */
+[data-theme="light"] .quick-action-btn {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #374151;
+}
+
+[data-theme="light"] .quick-action-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* Mode selector */
+[data-theme="light"] .mode-btn {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #374151;
+}
+
+[data-theme="light"] .mode-btn--active {
+  background: rgba(8, 145, 178, 0.1);
+  border-color: #0891b2;
+  color: #0891b2;
 }

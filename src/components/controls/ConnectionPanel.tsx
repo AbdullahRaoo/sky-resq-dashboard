@@ -1,47 +1,26 @@
 /**
- * ConnectionPanel — connection profile selector + connect/disconnect button.
- * Uses Electron IPC instead of REST API.
+ * ConnectionPanel — simple connect/disconnect button.
+ * COM port and baud rate are configured in Settings.
  */
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useConnected } from "@/hooks/useTelemetry";
-import type { ConnectionProfile } from "@/types/telemetry";
+import { useSettingsStore } from "@/store/settingsStore";
 
 export default function ConnectionPanel() {
     const connected = useConnected();
-    const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
-    const [selectedProfile, setSelectedProfile] = useState<string>("");
+    const { comPort, baudRate } = useSettingsStore();
     const [loading, setLoading] = useState(false);
 
-    // Fetch connection profiles from Electron main process
-    useEffect(() => {
-        if (typeof window === "undefined" || !window.electron) return;
-
-        window.electron
-            .getConnectionProfiles()
-            .then((data: ConnectionProfile[]) => {
-                setProfiles(data);
-                if (data.length > 0) {
-                    setSelectedProfile(data[0].connection_string);
-                }
-            })
-            .catch((err: unknown) => console.error("Failed to fetch profiles:", err));
-    }, []);
-
     const handleConnect = useCallback(async () => {
-        if (!selectedProfile || !window.electron) return;
+        if (!window.electron) return;
         setLoading(true);
-
-        const profile = profiles.find(
-            (p) => p.connection_string === selectedProfile
-        );
-
         try {
             const result = await window.electron.connect({
-                connection_string: selectedProfile,
-                baud_rate: profile?.baud_rate ?? 57600,
+                connection_string: comPort,
+                baud_rate: baudRate,
             });
             if (!result.success) {
                 console.error("[CMD] Connect failed:", result.message);
@@ -51,7 +30,7 @@ export default function ConnectionPanel() {
         } finally {
             setLoading(false);
         }
-    }, [selectedProfile, profiles]);
+    }, [comPort, baudRate]);
 
     const handleDisconnect = useCallback(async () => {
         if (!window.electron) return;
@@ -67,24 +46,15 @@ export default function ConnectionPanel() {
 
     return (
         <div>
-            <select
-                className="connection-select"
-                value={selectedProfile}
-                onChange={(e) => setSelectedProfile(e.target.value)}
-                disabled={connected || loading}
-            >
-                {profiles.map((p) => (
-                    <option key={p.connection_string} value={p.connection_string}>
-                        {p.name} ({p.connection_string})
-                    </option>
-                ))}
-            </select>
-
+            <div className="connection-info">
+                <span className="connection-info__port">{comPort}</span>
+                <span className="connection-info__baud">{baudRate} baud</span>
+            </div>
             <div className="controls-row">
                 {!connected ? (
                     <button
                         className="btn btn--connect"
-                        disabled={!selectedProfile || loading}
+                        disabled={loading}
                         onClick={handleConnect}
                     >
                         {loading ? "Connecting..." : "Connect"}
