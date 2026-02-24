@@ -5,6 +5,10 @@ export const metadata: Metadata = {
   title: "Sky ResQ — Ground Control Station",
   description:
     "Enterprise-grade drone GCS dashboard for real-time telemetry, mapping, and flight control.",
+  icons: {
+    icon: "/icon skyresq.png",
+    apple: "/icon skyresq.png",
+  },
 };
 
 export default function RootLayout({
