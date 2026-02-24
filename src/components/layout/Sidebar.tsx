@@ -58,15 +58,6 @@ export default function Sidebar({ onSettingsClick }: SidebarProps) {
 
     return (
         <aside className="sidebar">
-            <div className="sidebar-logo">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                    <path d="M2 17l10 5 10-5" />
-                    <path d="M2 12l10 5 10-5" />
-                </svg>
-            </div>
-
-            <div className="sidebar-divider" />
 
             {NAV_ITEMS.map((item) => (
                 <button

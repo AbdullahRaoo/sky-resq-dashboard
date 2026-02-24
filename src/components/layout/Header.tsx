@@ -16,8 +16,8 @@ export default function Header() {
     return (
         <header className="header">
             <div className="header-left">
+                <img src="/skyresq long.png" alt="Sky ResQ" className="header-brand-logo" />
                 <div>
-                    <div className="header-title">Sky ResQ</div>
                     <div className="header-subtitle">Ground Control Station</div>
                 </div>
 
