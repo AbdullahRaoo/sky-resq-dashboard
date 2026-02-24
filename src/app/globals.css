@@ -186,7 +186,7 @@ body {
 /* ── Header ────────────────────────────────── */
 .header {
   grid-area: header;
-  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
+  background: linear-gradient(135deg, #000000 0%, var(--bg-card) 100%);
   backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
@@ -204,8 +204,8 @@ body {
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, var(--accent-primary) 0%, transparent 60%);
-  opacity: 0.5;
+  background: linear-gradient(90deg, var(--accent-primary) 48%, #00000000 60%);
+  opacity: 1;
 }
 
 .header-left {
@@ -215,7 +215,7 @@ body {
 }
 
 .header-brand-logo {
-  height: 32px;
+  height: 36px;
   width: auto;
   object-fit: contain;
 }
