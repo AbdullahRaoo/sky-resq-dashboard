@@ -1,0 +1,56 @@
+\chapter{Introduction}
+
+\section{Background and Motivation}
+Unmanned Aerial Vehicles (UAVs), colloquially known as drones, have transitioned dramatically over the last two decades from highly restrictive military apparatuses to ubiquitous platforms employed across a vast array of civilian, commercial, and humanitarian domains. The proliferation of low-cost micro-electro-mechanical systems (MEMS), advanced lithium-polymer batteries, and sophisticated open-source flight controllers has democratized UAV access. Today, UAVs are indispensable in structural inspection, precision agriculture, geographical mapping, and critically, Search and Rescue (SAR) operations. 
+
+In demanding operational contexts, the efficacy, safety, and ultimate success of a UAV mission do not depend solely upon the physical capabilities and aerodynamic stability of the airframe. They rely fundamentally upon the \textit{Ground Control Station} (GCS). The GCS is the nerve center of the unmanned aeronautical system. It acts as the critical human-machine interface (HMI), establishing the bidirectional data pipeline through which low-level, high-frequency telemetry data (such as three-dimensional spatial orientation, real-time kinematic GPS coordinates, barometric altitude, and electrochemical battery metrics) is transmitted from the UAV, and through which complex automated navigation waypoints and manual actuation overrides are transmitted from the operator.
+
+While the open-source hardware community—primarily driven by the ArduPilot and PX4 ecosystems—has made immense strides in flight controller reliability, the corresponding GCS software landscape has struggled to match the pace in terms of user experience (UX), cognitive ergonomics, and modern software engineering paradigms. Dominant platforms like Mission Planner and QGroundControl (QGC), while exhaustively feature-rich, are fundamentally engineered as deep diagnostic tools designed \textit{by} aerospace engineers \textit{for} aerospace engineers. When placed in the hands of a first responder or a field operator in a high-stress deployment environment, the densely populated, deeply nested user interfaces and overwhelming data streams often result in severe cognitive overload, thereby increasing the risk of mission failure.
+
+The primary motivation driving this research project is the urgent necessity to bridge the widening gap between advanced avionics hardware and accessible, modern human-machine interfaces. By conceptualizing, designing, and engineering a highly portable, cross-platform GCS—termed the \textbf{Sky ResQ Dashboard}—this project seeks to deploy modern web technologies (specifically React, Next.js, and Zustand) encapsulated within a native desktop environment (Electron). The overarching goal is to deliver a fluid, highly responsive, deeply intuitive, and hardware-agnostic operational tool that maintains the rigorous, low-latency communication required by the MAVLink protocol, while systematically eliminating the usability and hardware-locking hardware failures that plague legacy systems.
+
+\section{Problem Statement}
+Despite the widespread adoption of UAVs, the deployment of existing legacy Ground Control Stations introduces significant operational friction and risk for agile, modern deployment teams. This friction can be categorized into three primary problem domains:
+
+\begin{itemize}
+    \item \textbf{Cognitive Ergonomics and UI Complexity:} Legacy software architecture typically relies on static, WinForms, or heavy Qt designs that barrage the operator with an excessive multitude of simultaneous, unfiltered data points. Critical flight metrics are frequently obscured by deep configurations menus. In rapid-deployment scenarios, operators lack a modular, "glass cockpit" stylized dashboard that prioritizes critical situational awareness metrics (Attitude, Altitude, GPS Fix, Battery limits) over deep diagnostic tuning.
+    
+    \item \textbf{Monolithic Architectures and OS Dependencies:} Prominent GCS solutions frequently exhibit deep roots in single-platform lifecycles. For instance, Mission Planner is overwhelmingly optimized for Windows environments via the .NET framework, imposing severe portability barriers for operators utilizing modern stripped-down field tablets, custom Linux environments, or macOS devices. Emulation layers (such as Mono) introduce unacceptable latency and stability issues in mission-critical applications.
+    
+    \item \textbf{Hardware Protocol Instability and Serial Port Locking:} The physical communication layer—often relying on continuous wave 915MHz or 433MHz SiK Telemetry radios connected via USB—remains a notorious point of failure. Modern operating systems and web browsers aggressively manage raw serial port access. Existing software frequently fails to implement resilient stream management, resulting in "Port Busy," "Access Denied," or buffer overrun errors. When a hardware disconnect occurs mid-flight (a common field occurrence), the software often fails to elegantly recreate the socket, necessitating a full application reboot and leading to dangerous periods of telemetry blindness.
+\end{itemize}
+
+\section{Project Objectives}
+The fundamental objective of this thesis is to engineer an enterprise-grade, portable Ground Control Station that systemically resolves the aforementioned deficits. The specific, measurable objectives of the Sky ResQ Dashboard development include:
+
+\begin{enumerate}
+    \item \textbf{Architectural Decoupling:} Design a decoupled software architecture that strictly separates the high-frequency binary telemetry decoding loop from the React user interface rendering loop, ensuring UI fluidity (60 FPS) regardless of data burst severity.
+    \item \textbf{Development of a Modern, Ergonomic UI/UX:} Engineer a visually intuitive, modular dashboard featuring custom-built vector graphics components (e.g., Artificial Horizon, Compass Rose, dynamic telemetry cards) to drastically diminish operator cognitive load.
+    \item \textbf{Robust MAVLink Interfacing and Parsing:} Develop a highly reliable parsing and routing engine capable of interpreting both MAVLink v1 and v2 binary data streams natively within Typescript at high frequencies (10Hz+), while automatically negotiating data streams from the flight controller utilizing standard MAVLink messages (e.g., \texttt{REQUEST\_DATA\_STREAM}, ID 66).
+    \item \textbf{Cross-Platform Native Portability:} Leverage an Electron wrapper framework, fused with bleeding-edge Web Serial API (\texttt{navigator.serial}) implementations, to guarantee the GCS can act as a fully native, off-grid desktop application across Windows, Linux, and macOS without requiring extensive local dependencies or virtual machines.
+    \item \textbf{Hardware Fault Tolerance:} Engineer state-of-the-art serial port management algorithms that implement exponential backoff and localized `while`-loop stream architectures to proactively intercept buffer overruns, automatically re-establishing broken hardware connections invisibly to the user within milliseconds.
+\end{enumerate}
+
+\section{Scope of the Project}
+This project is intensely focused on the software architecture, human-machine interface design, and the intermediate communication translation layer of the UAV ecosystem. The defined scope includes:
+
+\begin{itemize}
+    \item Deep integration with the Pixhawk hardware ecosystem running ArduPilot/PX4 flight software utilizing the serialized MAVLink communication protocol.
+    \item The establishment of bi-directional serial communication, ensuring reliable reception of raw telemetry streams and the foundational capability for transmitting automated mission commands.
+    \item The full-stack development of a React/Next.js-based frontend, managed by Zustand atomic state arrays.
+    \item The implementation of a dual-pipeline routing architecture, allowing telemetry processing either via native web APIs (TypeScript Web Serial) or via a segmented Python (FastAPI/PyMAVLink) backend utilizing Electron Inter-Process Communication (IPC).
+\end{itemize}
+
+The scope explicitly \textit{excludes} the physical manufacturing or aerodynamic engineering of a UAV airframe. Furthermore, it excludes the design of custom Radio Frequency (RF) PCB hardware; the system is designed to interface universally with ubiquitous, off-the-shelf UART-to-USB SiK radios acting as transparent wireless serial bridges.
+
+\section{Thesis Organization}
+To provide a comprehensive analysis of the research and development process, this document is meticulously structured as follows:
+
+\begin{itemize}
+    \item \textbf{Chapter 1 (Introduction):} Extrapolates the background, articulates the precise problem statement regarding legacy systems, and defines the rigid objectives and scope of the Sky ResQ project.
+    \item \textbf{Chapter 2 (Literature Review):} Conducts a thorough review of the evolution of the MAVLink protocol and critically analyzes currently available dominant open-source GCS ecosystems to identify their architectural limitations.
+    \item \textbf{Chapter 3 (System Architecture):} Provides an exhaustive breakdown of the decoupled physical, backend, and frontend logic tiers, mapping the flow of data across the Electron IPC boundaries.
+    \item \textbf{Chapter 4 (Implementation Details):} Dives deep into the precise coding strategies utilized, explicitly detailing the mathematical approach to atomic state rendering in React, and the complex Typescript algorithms engineered to prevent Web Serial buffer lockouts.
+    \item \textbf{Chapter 5 (Results and Discussion):} Presents the visual and statistical outcomes of the project, exhibiting annotated dashboard screenshots, telemetry latency metrics, and an analysis of the auto-reconnect logic's efficacy in simulated hardware-failure scenarios.
+    \item \textbf{Chapter 6 (Conclusion and Future Work):} Summarizes the breakthroughs achieved and prescribes a roadmap for future algorithmic expansions, such as AI-assisted diagnostics and advanced video pipeline integrations.
+\end{itemize}

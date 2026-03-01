@@ -1,0 +1,52 @@
+\chapter{System Architecture}
+
+The systemic architecture of the Sky ResQ Dashboard is meticulously conceptualized around a strictly decoupled, modular tri-layer paradigm. This design philosophy isolates the asynchronous, high-frequency MAVLink telemetry deserialization from the synchronous, 60 FPS user interface rendering tree. The system is structurally bifurcated into the physical layer, the backend telemetry engine (dual-pipeline), and the reactive frontend presentation layer.
+
+\section{High-Level Architecture Overview}
+The pipeline is designed to be highly fault-tolerant. Data originates at the onboard flight controller, transmits over a lossy continuous-wave Radio Frequency (RF) link to a ground-based USB Universal Asynchronous Receiver-Transmitter (UART) bridge, and is ingested by the GCS. 
+
+% TODO: Placeholder for System Architecture Diagram
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{img/arch.png}
+    \caption{Detailed Tri-Layer Architecture of the Sky ResQ Dashboard. (Show UART $\rightarrow$ PyMAVLink/Web Serial $\rightarrow$ IPC $\rightarrow$ Zustand Store $\rightarrow$ React DOM)}
+    \label{fig:architecture_overview}
+\end{figure}
+
+As depicted in Figure \ref{fig:architecture_overview}, the GCS uniquely implements two redundant telemetry routing paradigms. Depending on deployment constraints, the system can parse binary strings entirely inside the Chromium V8 JavaScript engine (Browser Native mode), or relay them via Inter-Process Communication (IPC) from an embedded Python thread.
+
+\section{Physical Layer (Hardware Bridging)}
+The physical actuation layer assumes standard enterprise/hobbyist UAV configurations. The primary computing unit onboard the UAV is typically an STM32-based flight controller (e.g., Pixhawk 2.4.8, CubePilot, or Pixhawk 4) executing ArduCopter firmware. 
+To establish the critical command-and-control (C2) and telemetry link without active Wi-Fi or LTE, the system relies on a pair of SiK Telemetry Radios operating at 915MHz (North America) or 433MHz (Europe/Asia) configurations. 
+\begin{itemize}
+    \item \textbf{Air Unit:} Interfaces directly with the flight controller's \texttt{TELEMETRY 1} UART port (Tx/Rx/5V/GND) at a configured baud rate of 57,600 bits per second (bps).
+    \item \textbf{Ground Unit:} Connects to the host workstation via a Silicon Labs CP2102 or FTDI USB-to-TTL serial converter. This device enumerates on the host operating system as a generic Virtual COM Port (e.g., \texttt{COM3} on Windows, or \texttt{/dev/ttyUSB0} on Linux).
+\end{itemize}
+
+\section{Backend Layer (Telemetry Engine)}
+The hallmark of the Sky ResQ architecture is its Dual-Pipeline Telemetry Engine. This ensures the GCS can adapt to varying computational envelopes constraints.
+
+\subsection{Pipeline A: Full-Stack Python Backend (FastAPI / PyMAVLink)}
+For complex deployments—such as multi-vehicle swarm dispatching, or instances where the GCS must act as a local network relay routing telemetry to multiple field tablets simultaneously—a dedicated Python microservice is spawned.
+\begin{enumerate}
+    \item \textbf{PyMAVLink Ingestion:} The \texttt{pymavlink} module establishes a robust asynchronous connection to the virtual COM port. It actively monitors the incoming byte stream for MAVLink magic bytes (0xFE for v1, 0xFD for v2), validates the packet length against the CRC-X25 checksum, and maps the binary payload directly into high-level Python dictionary objects.
+    \item \textbf{Pydantic Normalization:} Unstructured PyMAVLink objects are ingested into strongly-typed Pydantic classes (e.g., \texttt{DroneState}, \texttt{AttitudeData}, \texttt{VfrHudData}). This normalization ensures that any corrupt or malformed MAVLink variables are discarded prior to transmission, guaranteeing data integrity.
+    \item \textbf{WebSocket/IPC Broadcast:} A highly concurrent FastAPI endpoint utilizes \texttt{asyncio} to broadcast the serialized Pydantic JSON state vector at exactly 10Hz to all subscribed frontend clients. In native desktop mode, this WebSocket layer is bypassed in favor of direct Electron Inter-Process Communication (IPC), driving latency down to sub-millisecond realms.
+\end{enumerate}
+
+\subsection{Pipeline B: Zero-Dependency Browser Web Serial API}
+For ultra-lightweight, rapid deployments where spinning up an isolated python environment is undesirable (e.g., running the GCS directly from a Google Chrome web tab on a locked-down field tablet), the architecture completely bypasses the Python layer utilizing the HTML5 \texttt{Navigator.serial} API.
+\begin{enumerate}
+    \item \textbf{Hardware Enumeration:} The browser prompts the operator for direct, sandboxed access to the USB serial radio.
+    \item \textbf{TypeScript MAVLink State Machine:} A custom-engineered, memory-safe TypeScript binary byte-parser initiates an infinite \texttt{readable.read()} loop. It manually buffers incoming \texttt{Uint8Array} chunks, seeks matching frame headers, calculates the polynomial CRC checksum in JavaScript, and leverages \texttt{DataView} to bit-shift and extract critical `float32`, `int32`, and `uint8` primitives.
+\end{enumerate}
+
+\section{Frontend Layer (User Interface Integration)}
+The presentation tier is engineered using Next.js (a React framework) and styled functionally using pure CSS to avoid the overhead of heavy component libraries.
+
+\subsection{Atomic State Management via Zustand}
+Managing a React Component Tree receiving 10 distinct state updates per second (Attitude, GPS arrays, Battery voltages, Flight Modes) presents severe React \texttt{VirtualDOM} diffing challenges. Traditional React \texttt{useState} or \texttt{Context API} propagations would trigger catastrophic, cascading re-renders across the entire GCS layout, effectively freezing the dashboard.
+To circumvent this, the architecture employs the \textbf{Zustand} state management library. Zustand provides a transient, microscopic state model. A central, non-reactive \texttt{useTelemetryStore} continuously ingests the incoming 10Hz MAVLink JSON arrays in the background. Individual React HUD components—such as the Compass Rose or the Roll/Pitch Artificial Horizon—utilize precise selector functions to subscribe solely to isolated, primitive variables within the state. This paradigm guarantees absolute rendering isolation: a micro-fluctuation in battery voltage will \textit{only} trigger a repaint of the battery text node, leaving the mathematically demanding Attitude SVG rendering queue entirely undisturbed.
+
+\subsection{The Electron Kiosk Wrapper}
+To achieve the primary objective of natively competitive desktop deployment, the entire Next.js web ecosystem is packaged inside an Electron framework shell. Electron fuses an instance of the Chromium rendering engine (for the React UI) with a Node.js background process runtime. This duality allows the web application to break out of the browser security sandbox, granting it the ability to write local `.tlog` telemetry log files to the hard drive, interface with native OS menus, and execute the Python backend processes invisibly as child processes.

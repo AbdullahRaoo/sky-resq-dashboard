@@ -1,0 +1,9 @@
+\begin{abstract}
+The rapid proliferation of Unmanned Aerial Vehicles (UAVs) in both commercial and mission-critical applications has necessitated the development of robust, reliable, and portable Ground Control Stations (GCS). Traditional GCS solutions often suffer from complex hardware dependencies, restrictive licensing, and rigid user interfaces that fail to cater to dynamic, on-the-field operational requirements. This project presents the design and development of an enterprise-grade, portable GCS tailored for search and rescue operations, surveillance, and advanced telemetry monitoring.
+
+Built upon a modern technology stack—leveraging Next.js, React, Electron, and a Python (FastAPI/PyMAVLink) backend—the proposed GCS offers a cross-platform (Windows, Linux, macOS) seamless experience. A core feature of this architecture is its dual-mode telemetry processing capability: operating both as a standalone native desktop application via Electron Inter-Process Communication (IPC) and as a progressive web application via Web Serial APIs. The system efficiently parses the MAVLink protocol to provide real-time updates on critical flight parameters, including attitude, geospatial positioning, battery health, and real-time video feed integration.
+
+The GCS addresses significant hurdles in serial communication by implementing sophisticated auto-reconnect logic and buffer management, fundamentally resolving pervasive "Port Busy" hardware locks encountered with 915MHz SiK Telemetry radios. Results demonstrate a highly responsive, low-latency telemetry pipeline capable of reliable automated mission planning and execution. This thesis documents the architectural decisions, implementation challenges, technical configurations, and the comprehensive results achieved by the Sky ResQ Dashboard.
+
+\textbf{Keywords:} \textit{Ground Control Station, UAV, MAVLink, Telemetry, React, Electron, PyMAVLink, Next.js}
+\end{abstract}

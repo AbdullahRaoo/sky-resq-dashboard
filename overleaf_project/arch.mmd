@@ -1,0 +1,28 @@
+graph TD
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px;
+    classDef hardware fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
+    classDef backend fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
+    classDef frontend fill:#ffe6cc,stroke:#d79b00,stroke-width:2px;
+
+    subgraph "Physical Layer"
+        FC[Flight Controller\nPixhawk/STM32]:::hardware <-->|MAVLink over UART| AirRadio[Air SiK Radio 915MHz]:::hardware
+        AirRadio -.->|RF Link 57.6kbaud| GroundRadio[Ground SiK Radio 915MHz]:::hardware
+        GroundRadio <-->|USB Virtual COM| OS_Serial[OS Serial Interface]:::hardware
+    end
+
+    subgraph "Backend Layer (Telemetry Routing)"
+        OS_Serial -->|Pipeline A| PyMav[Python PyMAVLink Parsing]:::backend
+        PyMav --> PyNorm[Pydantic Normalization]:::backend
+        PyNorm --> Websock[FastAPI WebSocket / IPC]:::backend
+        
+        OS_Serial -->|Pipeline B| WebSer[Browser Web Serial API]:::backend
+        WebSer --> TS_Parse[TypeScript Binary FSM Parser]:::backend
+    end
+
+    subgraph "Frontend Layer (Next.js & Electron)"
+        Websock -->|JSON 10Hz| Zustand[Zustand Atomic State Store]:::frontend
+        TS_Parse -->|JSON 10Hz| Zustand
+        Zustand -->|State Selector| HUD[React SVG HUD Components]:::frontend
+        Zustand -->|State Selector| Map[React-Leaflet Map]:::frontend
+        Zustand -->|State Selector| Status[Telemetry Data Cards]:::frontend
+    end

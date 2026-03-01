@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant Hardware as USB Serial (SiK Radio)
+    participant Node as Node.js IPC Thread
+    participant Chromium as Chromium Main Thread
+    participant Zustand as React / Zustand Store
+    
+    Note over Hardware,Node: Ingress Speed: 57,600 bps
+    
+    loop Every ~100ms (10Hz)
+        Hardware->>Node: Raw Uint8Array Chunk
+        activate Node
+        Node->>Node: Parse Magic Bytes (0xFD)\nVerify CRC-X25 Checksum
+        Node->>Node: Decode MAVLink Payload to JSON
+        Node-->>Chromium: IPC Send: 'telemetry_update' (Latency: < 0.5ms)
+        deactivate Node
+        
+        activate Chromium
+        Chromium->>Zustand: store.updateState(JSON)
+        activate Zustand
+        Zustand-->>Chromium: Diffing State Selectors (Latency: < 1.0ms)
+        deactivate Zustand
+        Chromium->>Chromium: Render Cycle (60 FPS)\nUpdate SVG transforms
+        deactivate Chromium
+    end

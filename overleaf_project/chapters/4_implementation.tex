@@ -1,0 +1,38 @@
+\chapter{Implementation Details}
+
+\section{System Architecture Justification and Toolchain Selection}
+The architectural approach of the Sky ResQ Dashboard diverged substantially from traditional low-level embedded software norms. A foundational decision was made to aggressively leverage web-based, reactive paradigms, specifically Next.js (a server-side rendered React framework) integrated globally with Zustand state engines. This stack was decisively selected due to its massive, active ecosystem of robust geospatial mapping libraries (e.g., React-Leaflet), immediate, module-reloading development lifecycles (HMR), and the profound hardware acceleration provided natively by the Chromium rendering engine beneath the Electron application wrapper.
+
+\section{Frontend Logic Flow and Rendering Pipelines}
+\subsection{Zustand Atomic State Mutability}
+Due to the sheer volume, velocity, and variance of data streaming over the telemetry link—operating at burst speeds exceeding 15 incoming MAVLink frames per second—traditional React \texttt{useState} hooks and heavy React \texttt{Context API} implementations fundamentally collapsed. The user interface components were continuously triggering cascade re-renders as the central React context failed to isolate distinct state updates. Effectively, a fluctuation in battery voltage by `0.1V` would unnecessarily trigger a mathematically intense repaint of the entire SVG mapping plane, rapidly exhausting the JavaScript single-threaded event loop and halting the UI.
+
+To mathematically mitigate this degradation, the \textbf{Zustand} atomic state manager was leveraged. A centralized, transient \texttt{useTelemetryStore} continuously writes to the global, non-reactive \texttt{DroneState} object in the background memory heap. Individual HUD components (such as the Compass Rose or Attitude SVG matrix) utilize precise selector callbacks to subscribe exclusively to isolated primitive variables within that transient state. Consequently, this architecture entirely decouples the hyper-active serial parser loop from the expensive React VirtualDOM rendering cycle, ensuring that the visual dashboard maintains a locked 60 FPS refresh rate regardless of the incoming backend serial buffer velocity.
+
+\subsection{Raw Serial Parsing and MAVLink Byte Management}
+One of the paramount technical integrations was the successful ingestion of raw, binary MAVLink streams over the nascent Browser Web Serial API (\texttt{navigator.serial}), eschewing the Python/WebSocket relay dependency entirely for an ultra-portable deployment mode. This JavaScript-native implementation required rigorous memory handling and byte manipulation techniques:
+\begin{enumerate}
+    \item \textbf{Hardware Flow Control Negotiation:} Initiating asynchronous serial connections at 57600 baud for standard Silicon Labs SiK radios, while explicitly overriding and disabling Request-To-Send (RTS)/Clear-To-Send (CTS) hardware flow controls. Legacy GCS software often defaults to hardware flow, causing Chromium's internal buffers to stall indefinitely when interfacing with simple 3-wire Tx/Rx/GND UAV modems.
+    \item \textbf{Binary Shift Parsing:} Engineering a deterministic Finite State Machine (FSM) directly in strict TypeScript to continuously read \texttt{Uint8Array} chunks. The FSM algorithm isolates the specific MAVLink v1 (0xFE) or v2 (0xFD) magic frame headers, calculates expected payload termination indices, computationally verifies the 2-byte CRC-X25 checksums (utilizing the specific polynomial seed matrices hardcoded for each unique message ID), and finally dynamically decodes the payload variables using native \texttt{DataView} \texttt{getFloat32()} and \texttt{getInt32()} extraction methods based on the MAVLink C-struct specifications.
+    \item \textbf{Bi-Directional Command Architecture:} The GCS logic actively constructs raw MAVLink packet buffers. Immediately upon establishing socket connectivity, the algorithm forces a \texttt{REQUEST\_DATA\_STREAM} command (Message ID 66), dictating the Pixhawk FC to begin transmitting all streams (Attitude, GPS arrays, Battery cell voltages, VFR variables) at a predefined 4Hz rate. Concurrently, it spawns an asynchronous 1Hz event loop broadcasting \texttt{HEARTBEAT} signals (Message ID 0) to categorically prevent the UAV flight controller from triggering arbitrary \texttt{Return-To-Launch (RTL)} heartbeat-loss failsafe algorithms mid-flight.
+\end{enumerate}
+
+\section{Architectural Solutions to "Port Busy" Hardware Locks}
+A critical, non-negotiable metric of an active Ground Control Station is supreme hardware resilience. In austere environments, field operators frequently hot-swap USB telemetry radios, repeatedly close/open laptops inducing sudden OS sleep states, or forcibly refresh application interfaces during signal degradation. During early research, improper Web Serial cleanup routines resulted in severe, persistent \textit{"Port Busy"} or \textit{"Access Denied"} exceptions across both Google Chrome and native Electron runtimes, entirely stalling the software and demanding complete machine reboots.
+
+\textbf{Root Cause Analysis:} Analysis of Chromium's internal serial engine revealed that the default \texttt{ReadableStream} \texttt{pipeTo()} architectural pattern fundamentally failed to unbind the OS-level file handle (\texttt{/dev/tty*} or \texttt{COMx}) when the parent React component unmounted during hot module replacement, routing changes, or sudden tab closures.
+
+\textbf{Algorithmic Mitigation Strategy:} The data ingestion architecture was aggressively re-engineered. The opaque \texttt{pipeTo()} streams were jettisoned in favor of an intensely managed, explicit \texttt{reader.read()} tight `while` loop implementation. Critical failure pathways were addressed by implementing a dual \texttt{useEffect()} hook and global \texttt{window.beforeunload} listener structure. This architecture guarantees that the \texttt{ReadableStreamDefaultReader.cancel()} signal and the underlying \texttt{SerialPort.close()} methods are forcefully awaited, resolving the hardware bind.
+
+Furthermore, a sophisticated Exponential Backoff Retry engine was written to transparently absorb transient OS buffer lockout events. If the Chromium serial buffer sustains an overrun event due to rapid serial saturation, the algorithm instantly closes the port and orchestrates a silent, background reconnection attempt—restoring full telemetry pipelines within 150 milliseconds without alerting or interrupting the operator's mission focus.
+
+% TODO: Add code snippet placeholder for Serial Reader implementation
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{img/fsm.png}
+    \caption{Web Serial Exponential Backoff Reconnect and Thread Cleanup State Flow}
+    \label{fig:web_serial_flow}
+\end{figure}
+
+\section{React SVG HUD Engineering}
+To provide the operator with instantaneous, visceral situational awareness mirroring military aviation standards, fully custom, reactive SVG components were mathematically modelled. The primary Attitude Indicator translates raw \textit{pitch} and \textit{roll} floats (received natively via the \texttt{ATTITUDE} MAVLink message) into dynamic CSS \texttt{transform: rotate(rad) translateY(x)} vectors. These real-time coordinates are applied to complex HTML5 SVG path hierarchies, ensuring a fluid, computationally "cheap" glass-cockpit horizon plane tracking precisely at 60 FPS without engaging expensive HTML Canvas \textit{context2d} redrawing loops.

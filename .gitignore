@@ -10,6 +10,9 @@
 !.yarn/releases
 !.yarn/versions
 
+*.zip
+overleaf_project/img/
+
 # testing
 /coverage
 

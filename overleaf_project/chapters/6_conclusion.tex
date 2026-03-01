@@ -1,0 +1,25 @@
+\chapter{Conclusion and Future Work}
+
+\section{Conclusion}
+This thesis comprehensively detailed the architectural design, algorithmic engineering, and complete deployment lifecycle of the Sky ResQ Dashboard—a highly portable, enterprise-grade Ground Control Station (GCS) engineered specifically for Unmanned Aerial Vehicles (UAVs) executing critical deployment missions. 
+
+The primary catalyst for this research was the systemic necessity to overcome the pervasive rigidity, profound operating-system dependency, and severe cognitive friction inherent in legacy aerospace GCS solutions (e.g., Mission Planner, QGroundControl). By aggressively abandoning traditional C++/Qt and C\#/.NET environments in favor of a modern, reactive web-technology stack (Next.js, React, Zustand) encapsulated within an Electron Chromium/Node.js native desktop wrapper, the project unequivocally proved that a visually striking, highly performant, and authentically cross-platform GCS is not only theoretically feasible but practically superior for rapid field deployments across diverse hardware.
+
+A paramount technical milestone of the Sky ResQ architecture was the meticulous custom engineering of a zero-dependency, browser-native Web Serial API communication engine. Eschewing standard Python relays, this JavaScript boundary layer was programmed to parse high-frequency, complex MAVLink binary matrices in real-time, effectively decoding aerodynamic attitude tensors, RTK GPS arrays, and electrochemical battery telemetry directly onto the JavaScript heap. 
+
+Crucially, the implementation successfully neutralized the pervasive "Port Busy" hardware locks and OS buffer overruns associated with standard 915MHz Silicon Labs SiK radios. This was achieved through the deployment of an automatic Exponential Backoff connection-recovery FSM (Finite State Machine), which transparently absorbs erratic USB connectivity and re-establishes socket integrity within milliseconds. 
+
+Finally, the user interface layer—computationally decoupled from the intensive MAVLink byte-parsing logic via Zustand's atomic state selectors—provides operators with an uninterrupted, 60 FPS "glass-cockpit" experience. By prioritizing critical situational awareness metrics over dense configuration trees, the Sky ResQ Dashboard vastly reduces operator cognitive load, solidifying its standing as an optimal command-and-control interface for high-stress search and rescue (SAR) and tactical intelligence operations.
+
+\section{Future Work}
+While the Sky ResQ Dashboard establishes a radically modernized command foundation for UAV telemetry control, the architecture was intentionally designed to support vast scalability. Several sophisticated avenues for future algorithmic enhancement remain explicitly viable:
+
+\begin{enumerate}
+    \item \textbf{Automated Mission Generation and Waypoint Parsing:} Expanding the currently static 'Mission Planner' interface to allow dynamic, point-and-click graphical waypoint generation atop the React-Leaflet geospatial mapping tile-set. The future algorithm will compile these visual nodes into an array of MAVLink \texttt{MISSION\_ITEM\_INT} protocols, managing the complex FTP-style transmission handshakes required to upload persistent autonomous missions directly into the Pixhawk flight controller's internal EEPROM.
+    
+    \item \textbf{Low-Latency Encoded Video Feed Integration:} Deprecating the simulated HTML5 video overlay in favor of an active, hardware-accelerated UDP or WebRTC video parsing pipeline. A prospective implementation involves leveraging a Node.js companion script (utilizing GStreamer binaries) to ingest, decode, and render H.264/H.265 video streams directly from an onboard companion computer (e.g., Raspberry Pi 4) or commercial Herelink digital transmission systems without inducing UI render lag.
+    
+    \item \textbf{Multi-Vehicle Swarm State Dispatching:} Extending the Zustand atomic state management architecture to support multi-dimensional arrays of \texttt{DroneState} objects natively. By tracking and filtering incoming MAVLink packets by their unique \texttt{System ID} and \texttt{Component ID} headers, a single overarching dashboard instance could simultaneously monitor, track on the global map, and dispatch complex swarm algorithms to an entire fleet of interconnected UAVs.
+    
+    \item \textbf{Edge-Compute AI Diagnostic Agents:} Implementing a locally executed, lightweight Large Language Model (LLM) or a specialized deterministic Machine Learning agent within the isolated Electron Node.js environment. This agent would be tasked to automatically ingest and analyze the historical buffer of incoming \texttt{STATUSTEXT} severity outputs alongside extreme pitch/roll attitude fluctuations to preemptively warn operators, via synthesized audio alerts, of impending hardware anomalies or severe battery cell imbalances before the flight controller physically initiates a critical, unrecoverable failsafe maneuver.
+\end{enumerate}

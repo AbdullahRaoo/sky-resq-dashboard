@@ -1,0 +1,23 @@
+stateDiagram-v2
+    [*] --> Disconnected
+    
+    Disconnected --> Connecting : User Input\n(57600 baud, flowControl: none)
+    
+    Connecting --> Port_Open : navigator.serial.requestPort() success
+    Connecting --> Error : Access Denied / Port Busy
+    
+    Port_Open --> Reading : Start infinite reader.read() loop
+    
+    Reading --> Parsing : Uint8Array chunk received
+    Parsing --> Reading : Magic Byte (0xFD) processed
+    
+    Reading --> Buffer_Overrun : Chromium buffer saturation
+    Buffer_Overrun --> Cleanup : Catch overrun exception
+    
+    Reading --> Disconnected : User requests disconnect
+    
+    Cleanup --> Reconnecting : Exponential Backoff Wait (base: 150ms)
+    Reconnecting --> Port_Open : Retry port.open()
+    Reconnecting --> Error : Max retries exceeded
+    
+    Error --> Disconnected : Reset state variables
