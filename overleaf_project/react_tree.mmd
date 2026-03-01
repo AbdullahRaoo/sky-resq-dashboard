@@ -1,0 +1,25 @@
+flowchart TD
+    classDef store fill:#e1d5e7,stroke:#9673a6,stroke-width:2px;
+    classDef layout fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
+    classDef comp fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
+
+    Store[useTelemetryStore\nZustand]:::store
+
+    Dashboard[Main Dashboard Layout]:::layout
+
+    MapCard[Geospatial Pane\nReact-Leaflet]:::comp
+    MapCard -->|Selector: GPS/Position| Store
+
+    HudCards[Telemetry Cards Grid]:::comp
+    HudCards -->|Selector: VFR/Battery/Sats| Store
+
+    AttitudeInd[Attitude SVG Indicator]:::comp
+    AttitudeInd -->|Selector: Roll/Pitch| Store
+
+    CompassRose[Compass Heading SVG]:::comp
+    CompassRose -->|Selector: Heading| Store
+
+    Dashboard --> MapCard
+    Dashboard --> HudCards
+    Dashboard --> AttitudeInd
+    Dashboard --> CompassRose

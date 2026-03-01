@@ -9,6 +9,13 @@ Due to the sheer volume, velocity, and variance of data streaming over the telem
 
 To mathematically mitigate this degradation, the \textbf{Zustand} atomic state manager was leveraged. A centralized, transient \texttt{useTelemetryStore} continuously writes to the global, non-reactive \texttt{DroneState} object in the background memory heap. Individual HUD components (such as the Compass Rose or Attitude SVG matrix) utilize precise selector callbacks to subscribe exclusively to isolated primitive variables within that transient state. Consequently, this architecture entirely decouples the hyper-active serial parser loop from the expensive React VirtualDOM rendering cycle, ensuring that the visual dashboard maintains a locked 60 FPS refresh rate regardless of the incoming backend serial buffer velocity.
 
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=12cm,keepaspectratio]{img/react_tree.png}
+    \caption{Zustand Atomic State Architecture decoupled from the React VirtualDOM rendering tree.}
+    \label{fig:react_tree}
+\end{figure}
+
 \subsection{Raw Serial Parsing and MAVLink Byte Management}
 One of the paramount technical integrations was the successful ingestion of raw, binary MAVLink streams over the nascent Browser Web Serial API (\texttt{navigator.serial}), eschewing the Python/WebSocket relay dependency entirely for an ultra-portable deployment mode. This JavaScript-native implementation required rigorous memory handling and byte manipulation techniques:
 \begin{enumerate}
@@ -16,6 +23,13 @@ One of the paramount technical integrations was the successful ingestion of raw,
     \item \textbf{Binary Shift Parsing:} Engineering a deterministic Finite State Machine (FSM) directly in strict TypeScript to continuously read \texttt{Uint8Array} chunks. The FSM algorithm isolates the specific MAVLink v1 (0xFE) or v2 (0xFD) magic frame headers, calculates expected payload termination indices, computationally verifies the 2-byte CRC-X25 checksums (utilizing the specific polynomial seed matrices hardcoded for each unique message ID), and finally dynamically decodes the payload variables using native \texttt{DataView} \texttt{getFloat32()} and \texttt{getInt32()} extraction methods based on the MAVLink C-struct specifications.
     \item \textbf{Bi-Directional Command Architecture:} The GCS logic actively constructs raw MAVLink packet buffers. Immediately upon establishing socket connectivity, the algorithm forces a \texttt{REQUEST\_DATA\_STREAM} command (Message ID 66), dictating the Pixhawk FC to begin transmitting all streams (Attitude, GPS arrays, Battery cell voltages, VFR variables) at a predefined 4Hz rate. Concurrently, it spawns an asynchronous 1Hz event loop broadcasting \texttt{HEARTBEAT} signals (Message ID 0) to categorically prevent the UAV flight controller from triggering arbitrary \texttt{Return-To-Launch (RTL)} heartbeat-loss failsafe algorithms mid-flight.
 \end{enumerate}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=14cm,keepaspectratio]{img/mavlink_seq.png}
+    \caption{MAVLink initialization and telemetry handshake sequence executed natively in TypeScript.}
+    \label{fig:mavlink_seq}
+\end{figure}
 
 \section{Architectural Solutions to "Port Busy" Hardware Locks}
 A critical, non-negotiable metric of an active Ground Control Station is supreme hardware resilience. In austere environments, field operators frequently hot-swap USB telemetry radios, repeatedly close/open laptops inducing sudden OS sleep states, or forcibly refresh application interfaces during signal degradation. During early research, improper Web Serial cleanup routines resulted in severe, persistent \textit{"Port Busy"} or \textit{"Access Denied"} exceptions across both Google Chrome and native Electron runtimes, entirely stalling the software and demanding complete machine reboots.

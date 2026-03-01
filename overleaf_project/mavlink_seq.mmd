@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant GCS as Sky ResQ GCS
+    participant Drone as Flight Controller
+
+    GCS->>Drone: Connect (57600 baud)
+    
+    loop 1Hz Sync
+        GCS->>Drone: HEARTBEAT (ID: 0, Type: GCS)
+    end
+    
+    Drone-->>GCS: HEARTBEAT (ID: 0, Type: Quadrotor)
+    Note over GCS,Drone: Initial Connection Established
+    
+    GCS->>Drone: REQUEST_DATA_STREAM (ID: 66, All Streams, 4Hz)
+    
+    loop 4Hz Telemetry
+        Drone-->>GCS: ATTITUDE (ID: 30)
+        Drone-->>GCS: GLOBAL_POSITION_INT (ID: 33)
+        Drone-->>GCS: SYS_STATUS (ID: 1)
+        Drone-->>GCS: VFR_HUD (ID: 74)
+    end
