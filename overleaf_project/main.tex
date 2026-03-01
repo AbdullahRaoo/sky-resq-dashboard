@@ -1,4 +1,4 @@
-\documentclass[12pt,a4paper,twoside]{report}
+\documentclass[12pt,a4paper,oneside]{report}
 
 % Packages
 \usepackage[utf8]{inputenc}
@@ -13,7 +13,8 @@
 \usepackage{fancyhdr}
 \usepackage{listings}
 \usepackage{xcolor}
-\usepackage[backend=biber,style=ieee]{biblatex}
+\usepackage{microtype} % Fixes Underfull \vbox and Overfull \hbox formatting
+\usepackage[backend=biber,style=ieee,sorting=none]{biblatex}
 
 % References file
 \addbibresource{references.bib}
@@ -63,7 +64,7 @@
     \vspace{2cm}
     
     % Middle Section: GCS Screenshot Placeholder
-    \includegraphics[width=13cm,keepaspectratio]{img/title_screenshot.png}
+    \includegraphics[width=\textwidth,keepaspectratio]{img/title_screenshot.png}
     
     \vfill % Pushes the bottom text down
     

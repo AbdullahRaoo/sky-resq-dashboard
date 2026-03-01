@@ -13,6 +13,22 @@
 *.zip
 overleaf_project/img/
 
+# LaTeX Build Artifacts
+*.aux
+*.bbl
+*.blg
+*.bcf
+*.fls
+*.fdb_latexmk
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+overleaf_project/*.pdf
+
 # testing
 /coverage
 
