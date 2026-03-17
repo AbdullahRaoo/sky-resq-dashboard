@@ -1553,6 +1553,12 @@ body {
   overflow-y: auto;
 }
 
+.right-panel__content--camera {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .right-panel__content::-webkit-scrollbar {
   width: 4px;
 }
@@ -1613,6 +1619,8 @@ body {
   background: #060a10;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 .video-feed--fullscreen {
@@ -1683,25 +1691,47 @@ body {
 }
 
 .video-feed__viewport {
+  position: relative;
   aspect-ratio: 16 / 9;
   background: #030509;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
+  flex: 1;
+  min-height: 180px;
+  overflow: hidden;
 }
 
-.video-feed__video {
+.video-feed__iframe {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  border: 0;
+  display: block;
+  background: #000;
 }
 
-.video-feed__placeholder {
+.video-feed__overlay,
+.video-feed__fallback {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  background: linear-gradient(180deg, rgba(3, 5, 9, 0.84) 0%, rgba(6, 10, 16, 0.92) 100%);
   color: var(--text-muted);
+}
+
+.video-feed__spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(148, 163, 184, 0.22);
+  border-top-color: var(--accent-primary);
+  animation: video-feed-spin 0.85s linear infinite;
 }
 
 .video-feed__placeholder-text {
@@ -1712,6 +1742,49 @@ body {
 .video-feed__placeholder-sub {
   font-size: 0.6rem;
   opacity: 0.5;
+}
+
+.video-feed__retry {
+  margin-top: 4px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: rgba(239, 156, 24, 0.12);
+  color: var(--text-primary);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.video-feed__retry:hover {
+  border-color: var(--border-accent);
+  background: rgba(239, 156, 24, 0.18);
+}
+
+.panel-section--camera-feed {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 340px;
+}
+
+.panel-section--camera-feed .video-feed {
+  flex: 1;
+}
+
+.panel-section--camera-feed .video-feed__viewport {
+  aspect-ratio: auto;
+  min-height: 280px;
+  height: 100%;
+}
+
+@keyframes video-feed-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Mission Panel ────────────────────────────────────────── */
