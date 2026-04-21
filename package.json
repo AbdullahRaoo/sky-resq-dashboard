@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "main": "main.js",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
-    "dev": "concurrently -k \"next dev\" \"wait-on tcp:3000 && electron .\"",
-    "dev:next": "next dev",
+    "dev": "concurrently -k \"npm run dev:next\" \"wait-on tcp:3000 && electron .\"",
+    "dev:next": "npx -y node@20.19.0 ./node_modules/next/dist/bin/next dev",
     "dev:electron": "wait-on tcp:3000 && electron .",
-    "build": "next build",
-    "start": "next start",
+    "build": "npx -y node@20.19.0 ./node_modules/next/dist/bin/next build",
+    "start": "npx -y node@20.19.0 ./node_modules/next/dist/bin/next start",
     "lint": "eslint",
     "rebuild": "electron-rebuild"
   },
@@ -29,7 +32,7 @@
     "@types/react-dom": "^19",
     "concurrently": "^9.2.1",
     "electron": "^40.6.0",
-    "electron-rebuild": "^3.2.9",
+    "electron-rebuild": "^2.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "typescript": "^5",

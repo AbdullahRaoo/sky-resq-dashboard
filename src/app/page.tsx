@@ -88,7 +88,7 @@ export default function DashboardPage() {
               {activeView === "camera" && "Camera & Payload"}
             </div>
 
-            <div className="right-panel__content">
+            <div className={`right-panel__content ${activeView === "camera" ? "right-panel__content--camera" : ""}`}>
               {/* ══ DASHBOARD VIEW ══ */}
               {activeView === "dashboard" && (
                 <>
@@ -147,7 +147,7 @@ export default function DashboardPage() {
               {/* ══ CAMERA VIEW ══ */}
               {activeView === "camera" && (
                 <>
-                  <div className="panel-section">
+                  <div className="panel-section panel-section--camera-feed">
                     <div className="panel-section__title">Live Camera Feed</div>
                     <VideoFeed />
                   </div>
