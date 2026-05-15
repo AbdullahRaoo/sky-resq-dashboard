@@ -78,3 +78,32 @@ The most persistent bug originally encountered was Google Chrome and Electron pe
 To mitigate random field disconnects, a mathematical **Exponential Backoff Buffer Recovery Engine** was engineered.
 - The web app dynamically monitors `Uint8Array` Chromium saturation. If an arbitrary buffer overrun occurs due to hyper-activity over the serial lane, the `reader.read` exception is caught.
 - Instead of fatal-crashing, the Finite State Machine (FSM) initiates a stealth background polling script starting at 150ms delays. It recursively tests `port.open()`, instantly restoring the total active telemetry pipeline entirely transparently to the active UI pilot, rendering the GCS supremely robust against transient connection failures.
+
+---
+
+## Current Integration Status — 2026-05-14
+
+Canonical system context lives in the companion repo:
+`AbdullahRaoo/skyresq` → `PROJECT_CONTEXT.md` + `AUDIT_2026_05_14.md`.
+
+Dashboard-side SAR features added/verified this cycle:
+
+- **Payload toggle** (`PayloadControl.tsx`): simple OPEN/CLOSED, no interlocks.
+  Sends `MAV_CMD_USER_1` to **Pi sysid=2, compid=191** over SiK + UDP-intercept.
+  `NAMED_VALUE_INT(PLDOPEN)` echoes state back. Verified end-to-end.
+- **SAR autonomy gate** (`MissionPanel.tsx`): "🤖 Engage SAR Autonomy" toggle
+  (visible all phases) → `MAV_CMD_USER_2` → Pi `/mission/enable`. Live
+  `mission-state` tile (state, target dist, lock, GPS).
+- **Mode-gated `flyTo`** (`electron/mavlink.js`): refuses unless FC already in
+  GUIDED — no silent mode override. "ENGAGE" quick-action for explicit GUIDED.
+- **400 m polygon fence** (`DroneMap.tsx`): vertices >400 m from drone refused;
+  refused entirely with no GPS fix.
+- **Video failover** (`VideoFeed.tsx` + `settingsStore.ts`): probes LAN host
+  (800 ms) → falls back to Tailscale remote; LAN/REMOTE badge; "Low Bandwidth
+  Mode" forces HLS. Settings now persisted (Zustand `persist`).
+- **mission_state telemetry**: `sar_pipeline.js` parses Pi `mission_state`
+  JSON → IPC → MissionPanel tile.
+
+Verified: `tsc --noEmit` clean. `next build` needs Node ≥20.9 (dev runs on
+Node 18 via `npm run dev`). Full SAR loop (orchestrator) passes 14/14
+automated checks on the Pi side.
