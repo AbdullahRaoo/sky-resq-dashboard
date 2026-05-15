@@ -77,14 +77,25 @@ export default function ConnectionPanel() {
                 const profilePort = radioProfile?.connection_string;
                 const profileBaud = radioProfile?.baud_rate;
 
+                // listSerialPorts returns ports sorted best-first (USB SiK/CP2102
+                // ranked above motherboard /dev/ttyS0). Prefer the first likely-
+                // MAVLink port. Replace any persisted choice that isn't itself a
+                // likely-MAVLink port — this fixes the "settings.persist remembered
+                // /dev/ttyS0 and now never picks the SiK" regression we hit.
+                const bestLikely = filteredPorts.find((p) => p.likelyMavlink);
+                const currentEntry = filteredPorts.find((p) => p.path === comPort);
                 const preferredPort =
-                    filteredPorts.find((p) => p.path === comPort)?.path ||
+                    currentEntry?.path ||
+                    bestLikely?.path ||
                     filteredPorts[0]?.path ||
                     profilePort ||
                     getBrowserPlatformDefaultPort();
 
                 const shouldReplaceCurrentPort =
-                    !comPort || GENERIC_PLACEHOLDER_PORTS.has(comPort) || !filteredPorts.some((p) => p.path === comPort);
+                    !comPort ||
+                    GENERIC_PLACEHOLDER_PORTS.has(comPort) ||
+                    !currentEntry ||
+                    (currentEntry && !currentEntry.likelyMavlink && !!bestLikely);
 
                 if (shouldReplaceCurrentPort && preferredPort !== comPort) {
                     updateSettings({ comPort: preferredPort });

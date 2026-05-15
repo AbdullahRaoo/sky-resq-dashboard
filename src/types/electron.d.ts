@@ -151,6 +151,9 @@ interface SerialPortInfo {
     vendorId?: string;
     productId?: string;
     friendlyName: string;
+    /** True if scoreSerialPath ranks this as a probable MAVLink device
+     * (USB CP2102/CDC-ACM/by-id). False for /dev/ttyS0 motherboard serial. */
+    likelyMavlink?: boolean;
 }
 
 interface ElectronAPI {
