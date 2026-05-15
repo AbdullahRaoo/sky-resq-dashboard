@@ -1341,13 +1341,25 @@ class MAVLinkHandler {
             switch (msg.msgId) {
                 case MSG_HEARTBEAT: {
                     const hb = decodeHeartbeat(msg.payload);
-                    if (hb && msg.payload.length >= 5 && msg.payload.readUInt8(4) !== 6) {
+                    // Only latch onto the REAL autopilot. Exclude:
+                    //  - GCS heartbeats (type 6)
+                    //  - the companion Pi: it advertises sysid=2 compid=191
+                    //    with autopilot=MAV_AUTOPILOT_INVALID (8). If we
+                    //    latched onto it we'd send REQUEST_DATA_STREAM to the
+                    //    Pi, the FC would never start telemetry, and the
+                    //    dashboard would show "heartbeat only, no data".
+                    const MAV_AUTOPILOT_INVALID = 8;
+                    const MAV_TYPE_GCS = 6;
+                    const isAutopilot = hb &&
+                        hb.mav_type !== MAV_TYPE_GCS &&
+                        hb.autopilot !== MAV_AUTOPILOT_INVALID;
+                    if (isAutopilot) {
                         this._state.heartbeat = hb;
                         this._state.last_heartbeat = Date.now() / 1000;
                         this._targetSystem = msg.sysId;
                         this._targetComponent = msg.compId;
 
-                        // After first heartbeat, request all telemetry streams
+                        // After first FC heartbeat, request all telemetry streams
                         if (!this._streamsRequested) {
                             this._streamsRequested = true;
                             this._requestAllStreams();
