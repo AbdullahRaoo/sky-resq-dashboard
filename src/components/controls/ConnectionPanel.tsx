@@ -78,26 +78,34 @@ export default function ConnectionPanel() {
                 const profileBaud = radioProfile?.baud_rate;
 
                 // listSerialPorts returns ports sorted best-first (USB SiK/CP2102
-                // ranked above motherboard /dev/ttyS0). Prefer the first likely-
-                // MAVLink port. Replace any persisted choice that isn't itself a
-                // likely-MAVLink port — this fixes the "settings.persist remembered
-                // /dev/ttyS0 and now never picks the SiK" regression we hit.
+                // ranked above motherboard /dev/ttyS0).
+                //
+                // Selection rule, in priority order:
+                //   1. If the persisted comPort exists AND is a likely-MAVLink
+                //      port, keep it (operator's explicit choice).
+                //   2. Otherwise, switch to the best likely-MAVLink port.
+                //   3. Last resort: first detected port / connection-profile / default.
+                //
+                // The earlier version had a subtle bug: `preferredPort` fell
+                // back to `currentEntry` first, so a persisted /dev/ttyS0 (which
+                // exists on a dev PC but is not the SiK) would resolve to
+                // itself — the replace-detection was correct but the candidate
+                // was wrong, so updateSettings was never called.
                 const bestLikely = filteredPorts.find((p) => p.likelyMavlink);
                 const currentEntry = filteredPorts.find((p) => p.path === comPort);
-                const preferredPort =
-                    currentEntry?.path ||
-                    bestLikely?.path ||
-                    filteredPorts[0]?.path ||
-                    profilePort ||
-                    getBrowserPlatformDefaultPort();
 
-                const shouldReplaceCurrentPort =
-                    !comPort ||
-                    GENERIC_PLACEHOLDER_PORTS.has(comPort) ||
-                    !currentEntry ||
-                    (currentEntry && !currentEntry.likelyMavlink && !!bestLikely);
+                let preferredPort: string;
+                if (currentEntry && currentEntry.likelyMavlink) {
+                    preferredPort = currentEntry.path;
+                } else if (bestLikely) {
+                    preferredPort = bestLikely.path;
+                } else {
+                    preferredPort = filteredPorts[0]?.path ||
+                        profilePort ||
+                        getBrowserPlatformDefaultPort();
+                }
 
-                if (shouldReplaceCurrentPort && preferredPort !== comPort) {
+                if (preferredPort && preferredPort !== comPort) {
                     updateSettings({ comPort: preferredPort });
                 }
 
