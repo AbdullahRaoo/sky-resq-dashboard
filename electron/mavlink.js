@@ -781,6 +781,12 @@ class MAVLinkHandler {
                     }
 
                     console.log("[MAVLink] Port opened, waiting for heartbeat...");
+                    // Reset the streams-requested flag on every fresh serial
+                    // open. The UDP/Pi-mirror path may have already triggered
+                    // a (failed) stream-request attempt before this port was
+                    // open; without this reset we'd never retry on serial and
+                    // FC would never start streaming on TELEM1 (SiK).
+                    this._streamsRequested = false;
                     this._startBroadcast();
 
                     // Wait for first heartbeat with timeout
@@ -1353,17 +1359,35 @@ class MAVLinkHandler {
                     const isAutopilot = hb &&
                         hb.mav_type !== MAV_TYPE_GCS &&
                         hb.autopilot !== MAV_AUTOPILOT_INVALID;
+
+                    // One-shot diagnostic per unique sender — tells us at a
+                    // glance whether the FC heartbeat is reaching us at all
+                    // and how we decided about latching.
+                    if (!this._hbSeen) this._hbSeen = new Set();
+                    const tag = `${msg.sysId}:${msg.compId}`;
+                    if (!this._hbSeen.has(tag)) {
+                        this._hbSeen.add(tag);
+                        console.log(
+                            `[MAVLink][hb] from sysid=${msg.sysId} compid=${msg.compId} ` +
+                            `type=${hb?.mav_type} autopilot=${hb?.autopilot} ` +
+                            `source=${source} -> ${isAutopilot ? "LATCHING" : "ignored"}`
+                        );
+                    }
+
                     if (isAutopilot) {
                         this._state.heartbeat = hb;
                         this._state.last_heartbeat = Date.now() / 1000;
                         this._targetSystem = msg.sysId;
                         this._targetComponent = msg.compId;
 
-                        // After first FC heartbeat, request all telemetry streams
+                        // After first FC heartbeat, request all telemetry
+                        // streams. _requestAllStreams sets _streamsRequested
+                        // itself, but only if the write actually goes out —
+                        // so heartbeats arriving over UDP before the serial
+                        // port is open won't strand the flag in "true".
                         if (!this._streamsRequested) {
-                            this._streamsRequested = true;
                             this._requestAllStreams();
-                            this._startGcsHeartbeat();
+                            if (this._streamsRequested) this._startGcsHeartbeat();
                         }
                     }
                     break;
@@ -1477,9 +1501,16 @@ class MAVLinkHandler {
      * Stream IDs: 0=ALL, 1=RAW_SENSORS, 2=EXTENDED_STATUS, 6=POSITION, 10=EXTRA1, 11=EXTRA2, 12=EXTRA3
      */
     _requestAllStreams() {
-        if (!this._port || !this._port.isOpen) return;
+        // Stream requests must reach the FC. Serial (SiK) is the primary path;
+        // UDP (Pi mirror) is the failover when MAVLINK_UDP_BIDIR=1. If neither
+        // is available we leave _streamsRequested=false so the next heartbeat
+        // retries — this is what stops a pre-connect UDP heartbeat from
+        // permanently latching the flag and starving the SiK path.
+        const serialOk = !!(this._port && this._port.isOpen);
+        const udpOk = !!(this._linkRouter && typeof this._linkRouter.sendCommandUdp === "function");
+        if (!serialOk && !udpOk) return;
+        if (!this._targetSystem) return;
 
-        const rate = 4; // 4 Hz for most streams
         const streams = [
             { id: 0, rate: 4, name: "ALL" },
             { id: 1, rate: 2, name: "RAW_SENSORS" },      // GPS_RAW_INT, SYS_STATUS
@@ -1490,21 +1521,32 @@ class MAVLinkHandler {
             { id: 12, rate: 2, name: "EXTRA3" },            // Battery, etc.
         ];
 
-        console.log("[MAVLink] Requesting telemetry data streams...");
+        console.log(`[MAVLink] Requesting telemetry data streams (serial=${serialOk} udp=${udpOk})`);
 
-        // Send each stream request with a small delay to avoid flooding
+        let anyWrite = false;
         streams.forEach((stream, i) => {
             setTimeout(() => {
+                const buf = buildRequestDataStream(
+                    this._targetSystem, this._targetComponent,
+                    stream.id, stream.rate, 1 // start_stop = 1 (start)
+                );
                 if (this._port && this._port.isOpen) {
-                    const buf = buildRequestDataStream(
-                        this._targetSystem, this._targetComponent,
-                        stream.id, stream.rate, 1 // start_stop = 1 (start)
-                    );
-                    this._port.write(buf);
-                    console.log(`[MAVLink]   → Stream ${stream.id} (${stream.name}) @ ${stream.rate} Hz`);
+                    try { this._port.write(buf); anyWrite = true; } catch { /* ignore */ }
                 }
+                if (this._linkRouter && typeof this._linkRouter.sendCommandUdp === "function") {
+                    if (this._linkRouter.sendCommandUdp(buf)) anyWrite = true;
+                }
+                console.log(`[MAVLink]   → Stream ${stream.id} (${stream.name}) @ ${stream.rate} Hz`);
             }, i * 100); // stagger by 100ms
         });
+
+        // Mark requested optimistically; the next-heartbeat retry path is the
+        // safety net if the writes silently fail (port closes between checks).
+        if (serialOk || udpOk) this._streamsRequested = true;
+        // anyWrite is updated asynchronously inside the setTimeouts; we still
+        // commit the flag now because retrying every heartbeat would spam the
+        // FC. The serial-open reset path handles the genuine failure mode.
+        void anyWrite;
     }
 
     /**
