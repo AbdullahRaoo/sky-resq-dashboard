@@ -113,9 +113,6 @@ contextBridge.exposeInMainWorld("electron", {
     /** Force the active MAVLink link ('udp' | 'sik' | 'auto'). */
     setActiveLink: (mode) => ipcRenderer.invoke("mavlink-set-active-link", mode),
 
-    /** Returns true if DEMO_MODE=1 was set at startup (hard-lock). */
-    isDemoLocked: () => ipcRenderer.invoke("get-demo-locked"),
-
     // ── Payload ───────────────────────────────────────────────
     /** Deploy rescue payload via servo with interlock validation. */
     deployPayload: (options) => ipcRenderer.invoke("mavlink-deploy-payload", options),

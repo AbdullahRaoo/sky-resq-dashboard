@@ -18,25 +18,19 @@ import AttitudeIndicator from "@/components/hud/AttitudeIndicator";
 import CompassRose from "@/components/hud/CompassRose";
 import HudCards from "@/components/hud/HudCards";
 import FlightTimer from "@/components/status/FlightTimer";
-import ArmButton from "@/components/controls/ArmButton";
-import ModeSelector from "@/components/controls/ModeSelector";
 import ConnectionPanel from "@/components/controls/ConnectionPanel";
 import QuickActions from "@/components/controls/QuickActions";
 import PayloadControl from "@/components/controls/PayloadControl";
 import GimbalControl from "@/components/controls/GimbalControl";
-import LinkStatus from "@/components/status/LinkStatus";
 import AlertPanel from "@/components/status/AlertPanel";
 import MissionPanel from "@/components/mission/MissionPanel";
+import SarMissionState from "@/components/mission/SarMissionState";
 import VideoFeed from "@/components/video/VideoFeed";
 import ConsoleLog from "@/components/status/ConsoleLog";
 import SettingsDialog from "@/components/settings/SettingsDialog";
 import SurvivorFilters from "@/components/survivors/SurvivorFilters";
 import SurvivorTable from "@/components/survivors/SurvivorTable";
 import SystemWarningBanner from "@/components/status/SystemWarningBanner";
-import DemoBanner from "@/components/demo/DemoBanner";
-import DemoChecklist from "@/components/demo/DemoChecklist";
-import DemoStepPrompt from "@/components/demo/DemoStepPrompt";
-import { useDemoStore } from "@/store/demoStore";
 
 const DroneMap = dynamic(
   () => import("@/components/map/DroneMap"),
@@ -49,7 +43,6 @@ export default function DashboardPage() {
   const statusText = useStatusText();
   const activeView = useNavStore((s) => s.activeView);
   const theme = useThemeStore((s) => s.theme);
-  const demoMode = useDemoStore((s) => s.demoMode);
   const [videoOpen, setVideoOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -61,7 +54,6 @@ export default function DashboardPage() {
   return (
     <div className="electron-app">
       <SystemWarningBanner />
-      {demoMode && <DemoBanner />}
       <div className="dashboard-layout">
         <Sidebar onSettingsClick={() => setSettingsOpen(true)} />
         <Header />
@@ -128,6 +120,11 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="panel-section">
+                    <div className="panel-section__title">SAR Mission</div>
+                    <SarMissionState />
+                  </div>
+
+                  <div className="panel-section">
                     <div className="panel-section__title">Orientation</div>
                     <div className="orientation-row">
                       <AttitudeIndicator />
@@ -143,23 +140,8 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="panel-section">
-                    <div className="panel-section__title">Communication Links</div>
-                    <LinkStatus />
-                  </div>
-
-                  <div className="panel-section">
-                    <div className="panel-section__title">Quick Actions</div>
+                    <div className="panel-section__title">Emergency Override</div>
                     <QuickActions />
-                  </div>
-
-                  <div className="panel-section">
-                    <div className="panel-section__title">Flight Mode</div>
-                    <ModeSelector />
-                  </div>
-
-                  <div className="panel-section">
-                    <div className="panel-section__title">Motor Control</div>
-                    <ArmButton />
                   </div>
 
                   {statusText && (
@@ -200,11 +182,15 @@ export default function DashboardPage() {
                     <ConnectionPanel />
                   </div>
                   <div className="panel-section">
+                    <div className="panel-section__title">SAR Mission</div>
+                    <SarMissionState />
+                  </div>
+                  <div className="panel-section">
                     <div className="panel-section__title">Rescue Payload</div>
                     <PayloadControl />
                   </div>
                   <div className="panel-section">
-                    <div className="panel-section__title">Quick Actions</div>
+                    <div className="panel-section__title">Emergency Override</div>
                     <QuickActions />
                   </div>
                 </>
@@ -218,10 +204,6 @@ export default function DashboardPage() {
 
       {/* Settings Popup */}
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-
-      {/* Demo mode overlays */}
-      {demoMode && <DemoChecklist />}
-      {demoMode && <DemoStepPrompt />}
     </div>
   );
 }

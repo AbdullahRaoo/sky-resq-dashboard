@@ -205,9 +205,6 @@ interface ElectronAPI {
     // Link selection
     setActiveLink: (mode: ActiveLinkName | "auto") => Promise<CommandResponse>;
 
-    // Demo
-    isDemoLocked: () => Promise<boolean>;
-
     // Window controls
     minimize: () => void;
     maximize: () => void;

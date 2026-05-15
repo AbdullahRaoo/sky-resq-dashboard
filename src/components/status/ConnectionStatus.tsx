@@ -9,7 +9,7 @@ import { useConnected, useHeartbeat } from "@/hooks/useTelemetry";
 
 export default function ConnectionStatus() {
     const connected = useConnected();
-    const { armed, flight_mode } = useHeartbeat();
+    const { armed } = useHeartbeat();
 
     return (
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -30,17 +30,6 @@ export default function ConnectionStatus() {
                 >
                     <span className="status-chip__dot" />
                     {armed ? "ARMED" : "DISARMED"}
-                </div>
-            )}
-
-            {/* Flight mode chip */}
-            {connected && (
-                <div className="status-chip" style={{
-                    background: "rgba(99, 102, 241, 0.12)",
-                    color: "var(--accent-indigo)",
-                    borderColor: "rgba(99, 102, 241, 0.25)",
-                }}>
-                    {flight_mode}
                 </div>
             )}
         </div>

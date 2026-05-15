@@ -1,9 +1,7 @@
 /**
  * useElectronTelemetry — listens for telemetry updates via Electron IPC.
- *
- * Replaces the old useWebSocket hook. Connects to the Electron main process
- * which reads MAVLink data from the serial port and broadcasts DroneState
- * at 10Hz via IPC.
+ * Connects to the main process which reads MAVLink data from the serial
+ * port and broadcasts DroneState at 10Hz via IPC.
  */
 
 "use client";

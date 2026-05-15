@@ -4,33 +4,30 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
 import ConnectionStatus from "@/components/status/ConnectionStatus";
 import PiBadge from "@/components/status/PiBadge";
 import LinkDots from "@/components/status/LinkDots";
-import { useConnected, useVfrHud, useGps, useBattery } from "@/hooks/useTelemetry";
-import { useDemoStore } from "@/store/demoStore";
+import { useConnected, useVfrHud, useGps, useBattery, useHeartbeat } from "@/hooks/useTelemetry";
+
+// Color-code flight modes by operational character so the operator sees at a
+// glance whether the drone is in an autonomous, manual, or safety/recovery
+// mode without reading the label.
+function modeColor(mode: string): string {
+    const m = mode.toUpperCase();
+    if (m === "AUTO" || m === "GUIDED") return "var(--accent-emerald)";
+    if (m === "RTL" || m === "LAND" || m === "SMART_RTL") return "var(--accent-amber)";
+    if (m === "LOITER" || m === "BRAKE" || m === "POSHOLD" || m === "ALT_HOLD") return "var(--accent-indigo)";
+    if (m === "STABILIZE" || m === "ACRO" || m === "MANUAL") return "var(--text-primary)";
+    if (m === "UNKNOWN") return "var(--text-muted)";
+    return "var(--text-primary)";
+}
 
 export default function Header() {
     const connected = useConnected();
     const hud = useVfrHud();
     const gps = useGps();
     const bat = useBattery();
-    const demoMode = useDemoStore((s) => s.demoMode);
-    const setDemoMode = useDemoStore((s) => s.setDemoMode);
-    const [demoLocked, setDemoLocked] = useState(false);
-
-    // If the operator launched the GCS with DEMO_MODE=1, force demo mode on
-    // at mount and disable the toggle.
-    useEffect(() => {
-        if (!window.electron?.isDemoLocked) return;
-        window.electron.isDemoLocked().then((locked) => {
-            if (locked) {
-                setDemoLocked(true);
-                setDemoMode(true);
-            }
-        }).catch(() => { /* ignore */ });
-    }, [setDemoMode]);
+    const { flight_mode } = useHeartbeat();
 
     return (
         <header className="header">
@@ -43,6 +40,16 @@ export default function Header() {
                 {/* Inline telemetry bar — only visible when connected */}
                 {connected && (
                     <div className="header-telemetry">
+                        <span className="header-telem-item">
+                            <span className="header-telem-label">MODE</span>
+                            <span
+                                className="header-telem-value"
+                                style={{ color: modeColor(flight_mode), fontWeight: 700 }}
+                            >
+                                {flight_mode}
+                            </span>
+                        </span>
+                        <span className="header-telem-sep">│</span>
                         <span className="header-telem-item">
                             <span className="header-telem-label">ALT</span>
                             <span className="header-telem-value">{hud.alt.toFixed(1)}m</span>
@@ -73,33 +80,6 @@ export default function Header() {
             <div className="header-right">
                 <LinkDots />
                 <PiBadge />
-                <button
-                    onClick={() => !demoLocked && setDemoMode(!demoMode)}
-                    disabled={demoLocked}
-                    title={
-                        demoLocked
-                            ? "Demo mode is hard-locked via DEMO_MODE=1"
-                            : demoMode
-                                ? "Exit demo mode"
-                                : "Enter demo mode"
-                    }
-                    style={{
-                        marginRight: 12,
-                        padding: "4px 12px",
-                        borderRadius: "var(--radius-sm)",
-                        border: `1px solid ${demoMode ? "var(--accent-primary)" : "var(--border-subtle)"}`,
-                        background: demoMode ? "var(--accent-primary-dim)" : "transparent",
-                        color: demoMode ? "var(--accent-primary)" : "var(--text-secondary)",
-                        fontWeight: 700,
-                        fontSize: "0.74rem",
-                        letterSpacing: "0.06em",
-                        cursor: demoLocked ? "not-allowed" : "pointer",
-                        opacity: demoLocked ? 0.7 : 1,
-                    }}
-                >
-                    {demoMode ? "● DEMO" : "DEMO"}
-                    {demoLocked && <span style={{ marginLeft: 4 }}>🔒</span>}
-                </button>
                 <ConnectionStatus />
             </div>
         </header>

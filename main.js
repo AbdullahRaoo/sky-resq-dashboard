@@ -16,23 +16,6 @@ try {
 
 let mainWindow = null;
 
-// Demo-mode altitude clamp (spec §2.5 + §8.4). When DEMO_MODE=1 the GCS
-// hard-caps any commanded altitude at this value across all paths
-// (mission upload + goto). Cannot be exceeded from the renderer.
-const DEMO_MAX_ALT_M = parseFloat(process.env.DEMO_MAX_ALT_M || "3");
-const DEMO_LOCKED = process.env.DEMO_MODE === "1" || process.env.DEMO_MODE === "true";
-
-function clampAltitudeForDemo(alt) {
-    const n = Number(alt);
-    if (!Number.isFinite(n)) return DEMO_LOCKED ? DEMO_MAX_ALT_M : 0;
-    if (DEMO_LOCKED && n > DEMO_MAX_ALT_M) return DEMO_MAX_ALT_M;
-    return n;
-}
-function clampAltitudesForDemo(waypoints) {
-    if (!DEMO_LOCKED || !Array.isArray(waypoints)) return waypoints || [];
-    return waypoints.map((wp) => ({ ...wp, alt: clampAltitudeForDemo(wp.alt) }));
-}
-
 /** @type {import('./electron/mavlink') | null} */
 let mavlinkHandler = null;
 /** @type {import('./electron/sar_pipeline') | null} */
@@ -180,9 +163,9 @@ function createWindow() {
 
     ipcMain.handle("mavlink-upload-mission", async (_event, waypoints) => {
         if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
-        const clamped = clampAltitudesForDemo(waypoints);
-        console.log(`[Main] Mission upload: ${clamped.length} waypoints`);
-        return mavlinkHandler.uploadMission(clamped);
+        const wps = Array.isArray(waypoints) ? waypoints : [];
+        console.log(`[Main] Mission upload: ${wps.length} waypoints`);
+        return mavlinkHandler.uploadMission(wps);
     });
 
     ipcMain.handle("mavlink-clear-mission", async () => {
@@ -196,9 +179,10 @@ function createWindow() {
 
     ipcMain.handle("mavlink-fly-to", async (_event, { lat, lon, alt }) => {
         if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
-        const clampedAlt = clampAltitudeForDemo(alt);
-        console.log(`[Main] Fly-to: ${lat}, ${lon} @ ${clampedAlt}m`);
-        return mavlinkHandler.flyTo(lat, lon, clampedAlt);
+        const a = Number(alt);
+        const safeAlt = Number.isFinite(a) ? a : 0;
+        console.log(`[Main] Fly-to: ${lat}, ${lon} @ ${safeAlt}m`);
+        return mavlinkHandler.flyTo(lat, lon, safeAlt);
     });
 
     ipcMain.handle("mavlink-set-gimbal", async (_event, { pitch, yaw }) => {
@@ -209,10 +193,6 @@ function createWindow() {
     ipcMain.handle("mavlink-set-active-link", async (_event, mode) => {
         if (!linkRouter) return { success: false, message: "Link router unavailable" };
         return linkRouter.setForced(mode);
-    });
-
-    ipcMain.handle("get-demo-locked", async () => {
-        return process.env.DEMO_MODE === "1" || process.env.DEMO_MODE === "true";
     });
 
     // ── Payload ───────────────────────────────────────────────
