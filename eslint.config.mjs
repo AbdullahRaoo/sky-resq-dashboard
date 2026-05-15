@@ -12,7 +12,16 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Deprecated hook kept for reference only — not imported anywhere.
+    "src/hooks/useWebSocket.ts",
   ]),
+  // Electron main/preload files are CJS Node.js — require() is correct there.
+  {
+    files: ["main.js", "preload.js", "electron/**/*.js"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

@@ -4,7 +4,7 @@
 
 import { create } from "zustand";
 
-export type GcsView = "dashboard" | "mission" | "camera";
+export type GcsView = "dashboard" | "mission" | "camera" | "survivors";
 
 interface NavStore {
     activeView: GcsView;

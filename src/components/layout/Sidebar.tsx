@@ -5,6 +5,7 @@
 "use client";
 
 import { useNavStore, type GcsView } from "@/store/navStore";
+import { useSurvivorStore } from "@/store/survivorStore";
 import type { ReactNode } from "react";
 
 interface NavItem {
@@ -47,6 +48,18 @@ const NAV_ITEMS: NavItem[] = [
             </svg>
         ),
     },
+    {
+        id: "survivors",
+        label: "Survivors",
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+        ),
+    },
 ];
 
 interface SidebarProps {
@@ -55,6 +68,7 @@ interface SidebarProps {
 
 export default function Sidebar({ onSettingsClick }: SidebarProps) {
     const { activeView, setView } = useNavStore();
+    const survivorCount = useSurvivorStore((s) => s.detections.length);
 
     return (
         <aside className="sidebar">
@@ -65,8 +79,28 @@ export default function Sidebar({ onSettingsClick }: SidebarProps) {
                     className={`sidebar-btn ${activeView === item.id ? "active" : ""}`}
                     title={item.label}
                     onClick={() => setView(item.id)}
+                    style={{ position: "relative" }}
                 >
                     {item.icon}
+                    {item.id === "survivors" && survivorCount > 0 && (
+                        <span style={{
+                            position: "absolute",
+                            top: 4,
+                            right: 4,
+                            minWidth: 16,
+                            height: 16,
+                            padding: "0 4px",
+                            background: "var(--accent-primary)",
+                            color: "#1a1a1a",
+                            borderRadius: 8,
+                            fontSize: "0.62rem",
+                            fontWeight: 800,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            lineHeight: 1,
+                        }}>{survivorCount}</span>
+                    )}
                 </button>
             ))}
 

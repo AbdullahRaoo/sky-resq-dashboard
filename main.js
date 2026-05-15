@@ -8,10 +8,39 @@
 const { app, BrowserWindow, ipcMain, screen } = require("electron");
 const path = require("path");
 
+// Load .env early so child modules (mavlink, sar_pipeline, payload_service)
+// see the same configuration. dotenv is already a runtime dep.
+try {
+    require("dotenv").config({ path: path.join(__dirname, ".env") });
+} catch { /* dotenv is optional at runtime */ }
+
 let mainWindow = null;
+
+// Demo-mode altitude clamp (spec §2.5 + §8.4). When DEMO_MODE=1 the GCS
+// hard-caps any commanded altitude at this value across all paths
+// (mission upload + goto). Cannot be exceeded from the renderer.
+const DEMO_MAX_ALT_M = parseFloat(process.env.DEMO_MAX_ALT_M || "3");
+const DEMO_LOCKED = process.env.DEMO_MODE === "1" || process.env.DEMO_MODE === "true";
+
+function clampAltitudeForDemo(alt) {
+    const n = Number(alt);
+    if (!Number.isFinite(n)) return DEMO_LOCKED ? DEMO_MAX_ALT_M : 0;
+    if (DEMO_LOCKED && n > DEMO_MAX_ALT_M) return DEMO_MAX_ALT_M;
+    return n;
+}
+function clampAltitudesForDemo(waypoints) {
+    if (!DEMO_LOCKED || !Array.isArray(waypoints)) return waypoints || [];
+    return waypoints.map((wp) => ({ ...wp, alt: clampAltitudeForDemo(wp.alt) }));
+}
 
 /** @type {import('./electron/mavlink') | null} */
 let mavlinkHandler = null;
+/** @type {import('./electron/sar_pipeline') | null} */
+let sarPipeline = null;
+/** @type {import('./electron/payload_service') | null} */
+let payloadService = null;
+/** @type {import('./electron/link_router') | null} */
+let linkRouter = null;
 
 function createWindow() {
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -56,6 +85,51 @@ function createWindow() {
         console.error("[Main] Serial telemetry will be unavailable");
     }
 
+    // Initialize payload service first so the SAR pipeline can feed it.
+    try {
+        if (mavlinkHandler) {
+            const { PayloadService } = require("./electron/payload_service");
+            payloadService = new PayloadService(mainWindow, mavlinkHandler);
+            payloadService.start();
+            mavlinkHandler.setPayloadService(payloadService);
+            console.log("[Main] Payload service initialized");
+        }
+    } catch (err) {
+        console.error("[Main] Failed to initialize payload service:", err.message);
+    }
+
+    // Initialize link router (UDP MAVLink mirror + 4G/SiK failover)
+    try {
+        if (mavlinkHandler) {
+            const { LinkRouter } = require("./electron/link_router");
+            linkRouter = new LinkRouter(mainWindow, mavlinkHandler);
+            linkRouter.start();
+            mavlinkHandler.setLinkRouter(linkRouter);
+            console.log("[Main] Link router initialized");
+        }
+    } catch (err) {
+        console.error("[Main] Failed to initialize link router:", err.message);
+    }
+
+    // Initialize SAR pipeline (UDP receiver + mock generator)
+    try {
+        const { SarPipeline } = require("./electron/sar_pipeline");
+        sarPipeline = new SarPipeline(mainWindow, {
+            getDronePosition: () => {
+                if (!mavlinkHandler) return null;
+                const pos = mavlinkHandler.getCurrentPosition?.();
+                return pos && (pos.lat !== 0 || pos.lon !== 0) ? pos : null;
+            },
+            onDetectionTick: (ts) => {
+                if (payloadService) payloadService.noteDetection(ts);
+            },
+        });
+        sarPipeline.start();
+        console.log("[Main] SAR pipeline initialized");
+    } catch (err) {
+        console.error("[Main] Failed to initialize SAR pipeline:", err.message);
+    }
+
     // ── IPC Handlers ──────────────────────────────────────────
 
     // Window controls (frameless)
@@ -93,38 +167,93 @@ function createWindow() {
 
     // Profiles
     ipcMain.handle("get-connection-profiles", async () => {
+        if (!mavlinkHandler) return [];
         return mavlinkHandler.getConnectionProfiles();
+    });
+
+    ipcMain.handle("mavlink-list-serial-ports", async () => {
+        if (!mavlinkHandler) return [];
+        return mavlinkHandler.listSerialPorts();
     });
 
     // ── Mission Commands ──────────────────────────────────────
 
     ipcMain.handle("mavlink-upload-mission", async (_event, waypoints) => {
         if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
-        // TODO: Implement full MAVLink mission upload protocol
-        // For now, store waypoints and return success
-        console.log(`[Main] Mission upload requested: ${waypoints.length} waypoints`);
-        return { success: true, message: `${waypoints.length} waypoints ready` };
+        const clamped = clampAltitudesForDemo(waypoints);
+        console.log(`[Main] Mission upload: ${clamped.length} waypoints`);
+        return mavlinkHandler.uploadMission(clamped);
     });
 
     ipcMain.handle("mavlink-clear-mission", async () => {
-        console.log("[Main] Mission clear requested");
-        return { success: true, message: "Mission cleared" };
+        if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
+        // An empty MISSION_COUNT clears the FC's onboard mission.
+        return mavlinkHandler.uploadMission([]).catch((err) => ({
+            success: false,
+            message: err?.message || "Clear failed",
+        })).then((res) => res.success ? { success: true, message: "Mission cleared" } : res);
     });
 
     ipcMain.handle("mavlink-fly-to", async (_event, { lat, lon, alt }) => {
         if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
-        console.log(`[Main] Fly-to: ${lat}, ${lon} @ ${alt}m`);
-        // TODO: Switch to GUIDED mode + send position target
-        return { success: true, message: `Flying to ${lat.toFixed(6)}, ${lon.toFixed(6)}` };
+        const clampedAlt = clampAltitudeForDemo(alt);
+        console.log(`[Main] Fly-to: ${lat}, ${lon} @ ${clampedAlt}m`);
+        return mavlinkHandler.flyTo(lat, lon, clampedAlt);
+    });
+
+    ipcMain.handle("mavlink-set-gimbal", async (_event, { pitch, yaw }) => {
+        if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
+        return mavlinkHandler.setGimbalAngle(pitch, yaw);
+    });
+
+    ipcMain.handle("mavlink-set-active-link", async (_event, mode) => {
+        if (!linkRouter) return { success: false, message: "Link router unavailable" };
+        return linkRouter.setForced(mode);
+    });
+
+    ipcMain.handle("get-demo-locked", async () => {
+        return process.env.DEMO_MODE === "1" || process.env.DEMO_MODE === "true";
     });
 
     // ── Payload ───────────────────────────────────────────────
 
-    ipcMain.handle("mavlink-deploy-payload", async () => {
+    ipcMain.handle("mavlink-deploy-payload", async (_event, options) => {
         if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
-        console.log("[Main] Payload deploy requested");
-        // TODO: Send MAV_CMD_DO_SET_SERVO
-        return { success: true, message: "Payload deployed" };
+        return mavlinkHandler.deployPayload(options || {});
+    });
+
+    ipcMain.handle("mavlink-set-payload-policy", async (_event, policy) => {
+        if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
+        return mavlinkHandler.setAutoDropPolicy(policy);
+    });
+
+    ipcMain.handle("mavlink-reset-mission", async () => {
+        if (payloadService) payloadService.resetMissionFlags();
+        console.log("[Main] Mission reset (payload flags cleared)");
+        return { success: true, message: "Mission reset" };
+    });
+
+    ipcMain.handle("mavlink-get-payload-state", async () => {
+        if (!mavlinkHandler) return null;
+        return mavlinkHandler.getPayloadState();
+    });
+
+    // Simple toggle path: dashboard -> MAV_CMD_USER_1 -> Pi GPIO 16 servo.
+    // Bypasses the auto-drop FSM; intended for bench/manual operation.
+    ipcMain.handle("mavlink-payload-toggle", async (_event, action) => {
+        if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
+        return mavlinkHandler.sendPayloadCommand(action || "toggle");
+    });
+
+    ipcMain.handle("mavlink-get-payload-open", async () => {
+        if (!mavlinkHandler) return false;
+        return mavlinkHandler.getPayloadOpen();
+    });
+
+    // SAR mission engage/disengage (Pi sar_orchestrator kill-switch)
+    ipcMain.handle("mavlink-mission-enable", async (_event, enable) => {
+        if (!mavlinkHandler) return { success: false, message: "No MAVLink handler" };
+        return mavlinkHandler.sendMissionEnable(!!enable);
     });
 }
 
@@ -133,9 +262,10 @@ function createWindow() {
 app.whenReady().then(createWindow);
 
 app.on("window-all-closed", () => {
-    if (mavlinkHandler) {
-        mavlinkHandler.destroy();
-    }
+    if (linkRouter) linkRouter.stop();
+    if (payloadService) payloadService.stop();
+    if (sarPipeline) sarPipeline.stop();
+    if (mavlinkHandler) mavlinkHandler.destroy();
     app.quit();
 });
 

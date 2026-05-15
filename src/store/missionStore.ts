@@ -1,9 +1,14 @@
 /**
  * Mission Planning Store — manages survey polygon, waypoints,
- * mission state, and active waypoint tracking.
+ * mission state, active waypoint tracking, and rescue payload policy.
  */
 
 import { create } from "zustand";
+import type {
+    PayloadState,
+    PayloadInterlocks,
+    AutoDropPolicy,
+} from "@/types/electron";
 
 export interface LatLng {
     lat: number;
@@ -42,6 +47,11 @@ interface MissionStore {
     missionState: MissionState;
     drawMode: boolean;
 
+    // Payload (driven by Electron main process)
+    autoDropPolicy: AutoDropPolicy;
+    payloadState: PayloadState;
+    payloadInterlocks: PayloadInterlocks;
+
     // Actions
     setPolygon: (points: LatLng[]) => void;
     addPolygonPoint: (point: LatLng) => void;
@@ -53,6 +63,10 @@ interface MissionStore {
     setCurrentWP: (wp: number) => void;
     setDrawMode: (on: boolean) => void;
     resetMission: () => void;
+
+    setAutoDropPolicy: (p: Partial<AutoDropPolicy>) => void;
+    setPayloadState: (state: PayloadState) => void;
+    setPayloadInterlocks: (interlocks: PayloadInterlocks) => void;
 }
 
 const defaultSurveyConfig: SurveyConfig = {
@@ -60,6 +74,27 @@ const defaultSurveyConfig: SurveyConfig = {
     overlap: 60,
     speed: 5,
     spacing: 20,
+};
+
+const defaultAutoDropPolicy: AutoDropPolicy = {
+    enabled: false,
+    trigger: "manual",
+    horizontal_tolerance_m: 1.0,
+    altitude_min_m: 2.0,
+    altitude_max_m: 5.0,
+    hold_time_s: 3.0,
+    require_active_detection: true,
+    one_shot: true,
+};
+
+const defaultInterlocks: PayloadInterlocks = {
+    armed: false,
+    guided: false,
+    gpsFixOk: false,
+    batteryOk: false,
+    altitudeOk: false,
+    notDropped: true,
+    linkOk: false,
 };
 
 export const useMissionStore = create<MissionStore>((set) => ({
@@ -70,6 +105,10 @@ export const useMissionStore = create<MissionStore>((set) => ({
     totalWP: 0,
     missionState: "idle",
     drawMode: false,
+
+    autoDropPolicy: defaultAutoDropPolicy,
+    payloadState: "ready",
+    payloadInterlocks: defaultInterlocks,
 
     setPolygon: (points) => set({ polygon: points }),
     addPolygonPoint: (point) => set((s) => ({ polygon: [...s.polygon, point] })),
@@ -88,5 +127,10 @@ export const useMissionStore = create<MissionStore>((set) => ({
         missionState: "idle",
         drawMode: false,
         surveyConfig: defaultSurveyConfig,
+        payloadState: "ready",
     }),
+
+    setAutoDropPolicy: (p) => set((s) => ({ autoDropPolicy: { ...s.autoDropPolicy, ...p } })),
+    setPayloadState: (state) => set({ payloadState: state }),
+    setPayloadInterlocks: (interlocks) => set({ payloadInterlocks: interlocks }),
 }));

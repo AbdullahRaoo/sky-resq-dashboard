@@ -19,12 +19,30 @@ import {
 
 type ConnectionMode = "electron" | "webserial" | "none";
 
+interface SerialPortInfo {
+    path: string;
+    friendlyName?: string;
+    manufacturer?: string;
+}
+
+const GENERIC_PLACEHOLDER_PORTS = new Set(["COM3", "/dev/ttyUSB0", "/dev/cu.usbserial-0001"]);
+
+function getBrowserPlatformDefaultPort() {
+    if (typeof window === "undefined") return "COM3";
+    const platform = window.navigator.platform.toLowerCase();
+    if (platform.includes("win")) return "COM3";
+    if (platform.includes("mac")) return "/dev/cu.usbserial-0001";
+    return "/dev/ttyUSB0";
+}
+
 export default function ConnectionPanel() {
     const connected = useConnected();
-    const { comPort, baudRate } = useSettingsStore();
+    const { comPort, baudRate, updateSettings } = useSettingsStore();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [mode, setMode] = useState<ConnectionMode>("none");
+    const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
+    const [portsRefreshing, setPortsRefreshing] = useState(false);
 
     // Detect environment on mount
     useEffect(() => {
@@ -36,6 +54,62 @@ export default function ConnectionPanel() {
             setMode("none");
         }
     }, []);
+
+    useEffect(() => {
+        if (mode !== "electron" || !window.electron) return;
+
+        let isMounted = true;
+
+        const hydrateConnectionDefaults = async () => {
+            setPortsRefreshing(true);
+            try {
+                const [profiles, detectedPorts] = await Promise.all([
+                    window.electron.getConnectionProfiles(),
+                    window.electron.listSerialPorts(),
+                ]);
+
+                if (!isMounted) return;
+
+                const filteredPorts = detectedPorts.filter((p) => !!p.path);
+                setSerialPorts(filteredPorts);
+
+                const radioProfile = profiles.find((profile) => profile.name === "Radio Telemetry") || profiles[0];
+                const profilePort = radioProfile?.connection_string;
+                const profileBaud = radioProfile?.baud_rate;
+
+                const preferredPort =
+                    filteredPorts.find((p) => p.path === comPort)?.path ||
+                    filteredPorts[0]?.path ||
+                    profilePort ||
+                    getBrowserPlatformDefaultPort();
+
+                const shouldReplaceCurrentPort =
+                    !comPort || GENERIC_PLACEHOLDER_PORTS.has(comPort) || !filteredPorts.some((p) => p.path === comPort);
+
+                if (shouldReplaceCurrentPort && preferredPort !== comPort) {
+                    updateSettings({ comPort: preferredPort });
+                }
+
+                if (profileBaud && profileBaud !== baudRate) {
+                    updateSettings({ baudRate: profileBaud });
+                }
+            } catch {
+                if (isMounted) {
+                    setSerialPorts([]);
+                }
+            } finally {
+                if (isMounted) {
+                    setPortsRefreshing(false);
+                }
+            }
+        };
+
+        hydrateConnectionDefaults();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [mode, comPort, baudRate, updateSettings]);
 
     const handleConnect = useCallback(async () => {
         setLoading(true);
@@ -86,11 +160,22 @@ export default function ConnectionPanel() {
         <div>
             <div className="connection-info">
                 {mode === "electron" && (
-                    <span className="connection-info__port">{comPort}</span>
+                    <span className="connection-info__port">
+                        {portsRefreshing ? "Scanning serial ports..." : comPort}
+                    </span>
                 )}
                 <span className="connection-info__baud">{baudRate} baud</span>
                 <span className="connection-info__mode">{modeLabel}</span>
             </div>
+
+            {mode === "electron" && serialPorts.length > 0 && (
+                <div className="connection-info" style={{ marginTop: 8 }}>
+                    <span className="connection-info__mode">
+                        Port detected: {serialPorts[0].path}
+                        {serialPorts[0].friendlyName ? ` (${serialPorts[0].friendlyName})` : ""}
+                    </span>
+                </div>
+            )}
 
             {mode === "none" && (
                 <div className="connection-warning">

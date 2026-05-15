@@ -225,6 +225,38 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                     </select>
                                 </div>
 
+                                <h3 className="settings-section__title">Video</h3>
+                                <div className="settings-field">
+                                    <label className="settings-label">Pi LAN host (preferred)</label>
+                                    <input type="text" className="settings-input"
+                                        placeholder="192.168.1.139"
+                                        value={settings.piLanHost}
+                                        onChange={(e) => settings.updateSettings({ piLanHost: e.target.value })} />
+                                    <div className="settings-hint">
+                                        Probed first. Use Pi&apos;s IP on the demo Wi-Fi (Blaze) for &lt;5 ms direct video.
+                                    </div>
+                                </div>
+                                <div className="settings-field">
+                                    <label className="settings-label">Pi remote host (Tailscale fallback)</label>
+                                    <input type="text" className="settings-input"
+                                        placeholder="100.123.87.26"
+                                        value={settings.piRemoteHost}
+                                        onChange={(e) => settings.updateSettings({ piRemoteHost: e.target.value })} />
+                                    <div className="settings-hint">
+                                        Used automatically when the LAN host is unreachable (e.g. you&apos;re on a different Wi-Fi).
+                                    </div>
+                                </div>
+                                <div className="settings-field">
+                                    <label className="settings-label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                        <input type="checkbox" checked={settings.lowBandwidthMode}
+                                            onChange={(e) => settings.updateSettings({ lowBandwidthMode: e.target.checked })} />
+                                        Low Bandwidth Mode (force HLS)
+                                    </label>
+                                    <div className="settings-hint">
+                                        Use HLS instead of WebRTC. Higher latency (~2-3 s) but more tolerant of Tailscale-relay jitter.
+                                    </div>
+                                </div>
+
                                 <h3 className="settings-section__title">Units</h3>
                                 <div className="settings-row">
                                     <div className="settings-field">

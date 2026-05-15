@@ -20,6 +20,15 @@ interface ActionConfig {
 
 const ACTIONS: ActionConfig[] = [
     {
+        mode: "GUIDED",
+        label: "ENGAGE",
+        icon: "M9 12l2 2 4-4M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z",
+        color: "var(--accent-primary, #34d399)",
+        bgColor: "rgba(52, 211, 153, 0.1)",
+        borderColor: "rgba(52, 211, 153, 0.3)",
+        confirm: "Engage GUIDED mode? Companion-computer autonomy (fly-to, missions, auto-track) will be allowed. You can revert any time via TX switch or HOLD.",
+    },
+    {
         mode: "RTL",
         label: "RTL",
         icon: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",

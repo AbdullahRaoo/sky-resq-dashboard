@@ -12,6 +12,7 @@
 const { SerialPort } = require("serialport");
 const dotenv = require("dotenv");
 const path = require("path");
+const fs = require("fs");
 
 // Load .env from project root
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
@@ -30,7 +31,12 @@ const MSG_GPS_RAW_INT = 24;
 const MSG_ATTITUDE = 30;
 const MSG_GLOBAL_POSITION_INT = 33;
 const MSG_VFR_HUD = 74;
+const MSG_MISSION_REQUEST_INT = 51;
+const MSG_MISSION_REQUEST = 40;
+const MSG_MISSION_ACK = 47;
+const MSG_COMMAND_ACK = 77;
 const MSG_STATUSTEXT = 253;
+const MSG_NAMED_VALUE_INT = 252;
 
 // ArduPilot Copter mode mapping
 const COPTER_MODES = {
@@ -42,7 +48,102 @@ const COPTER_MODES = {
 
 // MAVLink command IDs
 const MAV_CMD_COMPONENT_ARM_DISARM = 400;
-const MAV_CMD_DO_SET_MODE = 176;
+const MAV_CMD_DO_SET_SERVO = 183;
+const MAV_CMD_DO_REPOSITION = 192;
+const MAV_CMD_DO_MOUNT_CONTROL = 205;
+const MAV_CMD_DO_SET_MISSION_CURRENT = 224;
+const MAV_CMD_USER_1 = 31010;                   // repurposed: payload toggle to Pi
+const MAV_CMD_USER_2 = 31011;                   // repurposed: SAR mission enable
+const MAV_COMP_ID_ONBOARD_COMPUTER = 191;       // companion Pi component id
+// Pi mavlink_bridge advertises sysid=2 compid=191 so ArduPilot's MAVLink
+// router treats it as a separate system and forwards GCS→(2,191) cleanly
+// to TELEM2. Using sysid=1 (same as FC) collapsed the route entries.
+const PI_TARGET_SYSTEM = 2;
+
+// MAV_RESULT enum (subset)
+const MAV_RESULT = {
+    0: "ACCEPTED",
+    1: "TEMPORARILY_REJECTED",
+    2: "DENIED",
+    3: "UNSUPPORTED",
+    4: "FAILED",
+    5: "IN_PROGRESS",
+    6: "CANCELLED",
+};
+
+function getDefaultSerialPortByPlatform() {
+    if (process.platform === "win32") return "COM3";
+    if (process.platform === "darwin") return "/dev/cu.usbserial-0001";
+    return "/dev/ttyUSB0";
+}
+
+function formatSerialOpenError(error, connectionString) {
+    const raw = error?.message || "Unknown serial error";
+    const lowered = raw.toLowerCase();
+    const code = error?.code || "";
+
+    const isPermissionIssue =
+        code === "EACCES" ||
+        lowered.includes("permission denied") ||
+        lowered.includes("access denied");
+
+    if (isPermissionIssue && process.platform === "linux") {
+        return `Permission denied for ${connectionString}. Add your user to dialout and re-login: sudo usermod -aG dialout $USER`;
+    }
+
+    const isMissingDevice =
+        code === "ENOENT" ||
+        lowered.includes("no such file") ||
+        lowered.includes("cannot open");
+
+    if (isMissingDevice && process.platform !== "win32") {
+        return `Serial device not found: ${connectionString}. Check connected devices under /dev/ttyUSB* or /dev/ttyACM*.`;
+    }
+
+    return raw;
+}
+
+function scoreSerialPath(devicePath = "") {
+    const candidate = devicePath.toLowerCase();
+    if (!candidate) return 100;
+
+    if (candidate.startsWith("/dev/serial/by-id/")) return 0;
+    if (candidate.includes("ttyusb") || candidate.includes("ttyacm") || candidate.includes("cu.usb")) return 1;
+    if (candidate.includes("/dev/ttyama") || candidate.includes("/dev/ttyths")) return 2;
+    if (candidate.startsWith("com")) return 3;
+    if (candidate.includes("/dev/ttys")) return 20;
+    return 10;
+}
+
+function buildLinuxSerialAliasMap() {
+    const aliasMap = new Map();
+
+    if (process.platform !== "linux") {
+        return aliasMap;
+    }
+
+    try {
+        const byIdRoot = "/dev/serial/by-id";
+        if (!fs.existsSync(byIdRoot)) {
+            return aliasMap;
+        }
+
+        const entries = fs.readdirSync(byIdRoot);
+        for (const entry of entries) {
+            const aliasPath = path.join(byIdRoot, entry);
+            try {
+                const realPath = fs.realpathSync(aliasPath);
+                aliasMap.set(realPath, aliasPath);
+            } catch {
+                // ignore unresolved symlink
+            }
+        }
+    } catch {
+        // ignore alias map failures
+    }
+
+    return aliasMap;
+}
 
 /**
  * Lightweight MAVLink v1/v2 parser.
@@ -274,6 +375,42 @@ function decodeGpsRaw(buf) {
     };
 }
 
+function decodeMissionRequestInt(buf) {
+    // Wire: seq(u16,2) @ 0 | target_system(u8,1) @ 2 | target_component(u8,1) @ 3 | mission_type(u8,1) @ 4
+    if (buf.length < 4) return null;
+    const p = padPayload(buf, 5);
+    return { seq: p.readUInt16LE(0), missionType: buf.length >= 5 ? p.readUInt8(4) : 0 };
+}
+
+function decodeMissionAck(buf) {
+    // Wire: target_system(u8,1) @ 0 | target_component(u8,1) @ 1 | type(u8,1) @ 2 | mission_type(u8,1) @ 3
+    if (buf.length < 3) return null;
+    const p = padPayload(buf, 4);
+    return { type: p.readUInt8(2), missionType: buf.length >= 4 ? p.readUInt8(3) : 0 };
+}
+
+function decodeCommandAck(buf) {
+    // Wire (v2, sorted by size):
+    //   command(u16, 2) @ 0 | result(u8, 1) @ 2 | progress(u8, 1) @ 3 (v2 ext)
+    //   | result_param2(i32, 4) @ 4 | target_system(u8, 1) @ 8 | target_component(u8, 1) @ 9
+    if (buf.length < 3) return null;
+    const p = padPayload(buf, 10);
+    return {
+        command: p.readUInt16LE(0),
+        result: p.readUInt8(2),
+        progress: buf.length >= 4 ? p.readUInt8(3) : 255,
+    };
+}
+
+function decodeNamedValueInt(buf) {
+    // Wire: time_boot_ms(u32,4) @ 0 | value(i32,4) @ 4 | name(char[10]) @ 8
+    if (buf.length < 12) return null;
+    const value = buf.readInt32LE(4);
+    const name = buf.subarray(8, Math.min(18, buf.length))
+        .toString("ascii").replace(/\0/g, "").trim();
+    return { name, value };
+}
+
 function decodeStatusText(buf) {
     // Wire: severity(u8,1) @ 0 | text(char[50]) @ 1
     // Total: 51 bytes (but usually truncated)
@@ -408,6 +545,105 @@ function buildGcsHeartbeat(seq = 0) {
 }
 
 /**
+ * Build SET_POSITION_TARGET_GLOBAL_INT (msgId 86), CRC_EXTRA 5.
+ * Wire payload (sorted by sizeof, 51 bytes):
+ *   time_boot_ms(u32,4) @ 0 | lat_int(i32,4) @ 4 | lon_int(i32,4) @ 8
+ *   | alt(f32,4) @ 12 | vx(f32,4) @ 16 | vy(f32,4) @ 20 | vz(f32,4) @ 24
+ *   | afx(f32,4) @ 28 | afy(f32,4) @ 32 | afz(f32,4) @ 36
+ *   | yaw(f32,4) @ 40 | yaw_rate(f32,4) @ 44
+ *   | type_mask(u16,2) @ 48 | target_system(u8,1) @ 50 | target_component(u8,1) @ 51
+ *   | coordinate_frame(u8,1) @ 52
+ *   Total: 53. We pad to that size.
+ */
+function buildSetPositionTargetGlobalInt(targetSys, targetComp, latDeg, lonDeg, altM, seq = 0) {
+    const payloadLen = 53;
+    const buf = Buffer.alloc(10 + payloadLen + 2);
+    buf[0] = MAVLINK2_STX; buf[1] = payloadLen;
+    buf[2] = 0; buf[3] = 0; buf[4] = seq & 0xff;
+    buf[5] = 255; buf[6] = 0;
+    buf[7] = 86; buf[8] = 0; buf[9] = 0; // msgId = 86
+
+    let o = 10;
+    buf.writeUInt32LE(0, o); o += 4;                            // time_boot_ms
+    buf.writeInt32LE(Math.round(latDeg * 1e7), o); o += 4;      // lat_int
+    buf.writeInt32LE(Math.round(lonDeg * 1e7), o); o += 4;      // lon_int
+    buf.writeFloatLE(altM, o); o += 4;                          // alt (relative)
+    for (let i = 0; i < 8; i++) { buf.writeFloatLE(0, o); o += 4; } // vx,vy,vz,afx,afy,afz,yaw,yaw_rate
+    // type_mask: ignore vel(1<<3..5)+accel(1<<6..8)+yaw(1<<10..11)+force(1<<9). Keep position.
+    // 0b0000_1111_1111_1000 = 0x0FF8
+    buf.writeUInt16LE(0x0FF8, o); o += 2;
+    buf.writeUInt8(targetSys, o); o += 1;
+    buf.writeUInt8(targetComp, o); o += 1;
+    buf.writeUInt8(6, o); // coordinate_frame = MAV_FRAME_GLOBAL_RELATIVE_ALT_INT (6)
+
+    const crc = mavlinkCrc(buf, payloadLen, 5);
+    buf.writeUInt16LE(crc, 10 + payloadLen);
+    return buf;
+}
+
+/**
+ * Build MISSION_COUNT (msgId 44), CRC_EXTRA 221.
+ * Wire payload (5 bytes): count(u16) | target_system(u8) | target_component(u8) | mission_type(u8)
+ */
+function buildMissionCount(targetSys, targetComp, count, seq = 0) {
+    const payloadLen = 5;
+    const buf = Buffer.alloc(10 + payloadLen + 2);
+    buf[0] = MAVLINK2_STX; buf[1] = payloadLen;
+    buf[2] = 0; buf[3] = 0; buf[4] = seq & 0xff;
+    buf[5] = 255; buf[6] = 0;
+    buf[7] = 44; buf[8] = 0; buf[9] = 0;
+
+    let o = 10;
+    buf.writeUInt16LE(count, o); o += 2;
+    buf.writeUInt8(targetSys, o); o += 1;
+    buf.writeUInt8(targetComp, o); o += 1;
+    buf.writeUInt8(0, o);   // mission_type = MISSION
+
+    const crc = mavlinkCrc(buf, payloadLen, 221);
+    buf.writeUInt16LE(crc, 10 + payloadLen);
+    return buf;
+}
+
+/**
+ * Build MISSION_ITEM_INT (msgId 73), CRC_EXTRA 38.
+ * Wire payload (sorted, 38 bytes):
+ *   param1(f32,4) @ 0 | param2(f32,4) @ 4 | param3(f32,4) @ 8 | param4(f32,4) @ 12
+ *   | x(i32,4) @ 16 | y(i32,4) @ 20 | z(f32,4) @ 24
+ *   | seq(u16,2) @ 28 | command(u16,2) @ 30
+ *   | target_system(u8,1) @ 32 | target_component(u8,1) @ 33
+ *   | frame(u8,1) @ 34 | current(u8,1) @ 35 | autocontinue(u8,1) @ 36 | mission_type(u8,1) @ 37
+ */
+function buildMissionItemInt(targetSys, targetComp, item, seq = 0) {
+    const payloadLen = 38;
+    const buf = Buffer.alloc(10 + payloadLen + 2);
+    buf[0] = MAVLINK2_STX; buf[1] = payloadLen;
+    buf[2] = 0; buf[3] = 0; buf[4] = seq & 0xff;
+    buf[5] = 255; buf[6] = 0;
+    buf[7] = 73; buf[8] = 0; buf[9] = 0;
+
+    let o = 10;
+    buf.writeFloatLE(item.param1 || 0, o); o += 4;
+    buf.writeFloatLE(item.param2 || 0, o); o += 4;
+    buf.writeFloatLE(item.param3 || 0, o); o += 4;
+    buf.writeFloatLE(item.param4 || 0, o); o += 4;
+    buf.writeInt32LE(Math.round((item.lat || 0) * 1e7), o); o += 4;
+    buf.writeInt32LE(Math.round((item.lon || 0) * 1e7), o); o += 4;
+    buf.writeFloatLE(item.alt || 0, o); o += 4;
+    buf.writeUInt16LE(item.seq || 0, o); o += 2;
+    buf.writeUInt16LE(item.command || 16, o); o += 2;  // 16 = NAV_WAYPOINT
+    buf.writeUInt8(targetSys, o); o += 1;
+    buf.writeUInt8(targetComp, o); o += 1;
+    buf.writeUInt8(item.frame ?? 3, o); o += 1;        // 3 = MAV_FRAME_GLOBAL_RELATIVE_ALT
+    buf.writeUInt8(item.current ? 1 : 0, o); o += 1;
+    buf.writeUInt8(item.autocontinue ?? 1, o); o += 1;
+    buf.writeUInt8(0, o);                              // mission_type = MISSION
+
+    const crc = mavlinkCrc(buf, payloadLen, 38);
+    buf.writeUInt16LE(crc, 10 + payloadLen);
+    return buf;
+}
+
+/**
  * MAVLink x25 CRC with message CRC_EXTRA seed.
  */
 function mavlinkCrc(buf, payloadLen, crcExtra) {
@@ -449,6 +685,16 @@ class MAVLinkHandler {
         this._heartbeatInterval = null; // 1Hz GCS heartbeat to drone
         this._msgCounts = {};  // debug: track message counts
         this._streamsRequested = false; // flag: have we requested telemetry streams?
+        /** @type {Set<(ack: {command: number, result: number, progress: number}) => void>} */
+        this._ackListeners = new Set();
+        /** @type {Set<(msg: {msgId: number, sysId: number, compId: number, payload: Buffer}) => void>} */
+        this._messageListeners = new Set();
+        this._payloadService = null;
+        this._linkRouter = null;
+        /** Per-source parser for UDP-injected MAVLink bytes (so partial frames
+         * from the UDP socket don't corrupt the serial parser buffer). */
+        this._udpParser = new MAVLinkParser();
+        this._udpParser.onMessage = (msg) => this._handleMessage(msg, "udp");
 
         // Drone state (matches frontend DroneState interface exactly)
         this._state = {
@@ -461,10 +707,27 @@ class MAVLinkHandler {
             battery: { voltage: 0, current: 0, remaining: -1 },
             gps: { fix_type: 0, satellites_visible: 0, hdop: 0 },
             status_text: "",
+            payloadOpen: false,
             timestamp: 0,
         };
 
-        this._parser.onMessage = (msg) => this._handleMessage(msg);
+        this._parser.onMessage = (msg) => this._handleMessage(msg, "serial");
+    }
+
+    /** Ingest MAVLink bytes received via an alternate transport (e.g. UDP/4G). */
+    ingestExternalBytes(buf, source) {
+        if (source === "udp") this._udpParser.parse(buf);
+    }
+
+    /** Register a generic message listener (used by mission/gimbal helpers). */
+    onMessage(listener) {
+        this._messageListeners.add(listener);
+        return () => this._messageListeners.delete(listener);
+    }
+
+    /** Wire the link router so we can tell it when UDP heartbeats arrive. */
+    setLinkRouter(router) {
+        this._linkRouter = router;
     }
 
     /**
@@ -511,8 +774,9 @@ class MAVLinkHandler {
 
                 this._port.open((err) => {
                     if (err) {
-                        console.error("[MAVLink] Failed to open port:", err.message);
-                        resolve({ success: false, message: err.message });
+                        const userFriendlyError = formatSerialOpenError(err, connectionString);
+                        console.error("[MAVLink] Failed to open port:", userFriendlyError);
+                        resolve({ success: false, message: userFriendlyError });
                         return;
                     }
 
@@ -625,12 +889,360 @@ class MAVLinkHandler {
         return { success: true, message: `Set mode to ${modeName}` };
     }
 
+    /** Return the drone's current position (lat, lon, relative_alt). */
+    getCurrentPosition() {
+        return {
+            lat: this._state.position.lat,
+            lon: this._state.position.lon,
+            alt: this._state.position.relative_alt,
+        };
+    }
+
+    /** Return a frozen snapshot of the current drone state. */
+    getStateSnapshot() {
+        return {
+            connected: this._state.connected,
+            armed: this._state.heartbeat.armed,
+            mode: this._state.heartbeat.flight_mode,
+            position: { ...this._state.position },
+            battery: { ...this._state.battery },
+            gps: { ...this._state.gps },
+            lastHeartbeat: this._state.last_heartbeat,
+        };
+    }
+
+    /** Register a payload service so commands and IPC can be routed to it. */
+    setPayloadService(service) {
+        this._payloadService = service;
+    }
+
+    /** Get current payload state for IPC queries. */
+    getPayloadState() {
+        return this._payloadService ? this._payloadService.snapshot() : null;
+    }
+
+    /**
+     * Deploy the rescue payload after interlock validation.
+     * Delegates to the payload service.
+     */
+    async deployPayload(options = {}) {
+        if (!this._payloadService) return { success: false, message: "Payload service unavailable" };
+        return this._payloadService.requestManualDrop(options);
+    }
+
+    /** Update the auto-drop policy. */
+    async setAutoDropPolicy(policy) {
+        if (!this._payloadService) return { success: false, message: "Payload service unavailable" };
+        return this._payloadService.setPolicy(policy);
+    }
+
+    /**
+     * Send a payload toggle command to the Pi companion via MAV_CMD_USER_1.
+     * ArduPilot routes COMMAND_LONG with target_component=191 to TELEM2,
+     * where mavlink_bridge picks it up and drives the GPIO 16 servo.
+     *
+     * `action` is one of "open" | "close" | "toggle".
+     * param1 encoding: 1.0 open, 0.0 close, 2.0 toggle.
+     *
+     * Returns when the Pi responds with COMMAND_ACK or after timeoutMs.
+     */
+    async sendPayloadCommand(action, timeoutMs = 1500) {
+        const param1 = action === "open" ? 1.0
+            : action === "close" ? 0.0
+            : action === "toggle" ? 2.0
+            : null;
+        if (param1 === null) {
+            return { success: false, message: `Unknown action: ${action}` };
+        }
+        const buf = buildCommandLong(
+            PI_TARGET_SYSTEM,
+            MAV_COMP_ID_ONBOARD_COMPUTER,
+            MAV_CMD_USER_1,
+            [param1, 0, 0, 0, 0, 0, 0],
+        );
+
+        // Send via UDP (Tailscale) too — ArduPilot does not reliably forward
+        // COMMAND_LONG with target_component=191 between TELEM1 (SiK) and
+        // TELEM2 (companion Pi), so the UDP path is what actually delivers
+        // the command to the Pi today. SiK still tries as a backup.
+        let udpOk = false;
+        if (this._linkRouter && typeof this._linkRouter.sendCommandUdp === "function") {
+            udpOk = this._linkRouter.sendCommandUdp(buf);
+        }
+
+        if ((!this._port || !this._port.isOpen) && !udpOk) {
+            return { success: false, message: "Not connected" };
+        }
+        return new Promise((resolve) => {
+            let settled = false;
+            const listener = (ack) => {
+                if (ack.command !== MAV_CMD_USER_1) return;
+                if (settled) return;
+                settled = true;
+                this._ackListeners.delete(listener);
+                clearTimeout(timer);
+                const name = MAV_RESULT[ack.result] || `RESULT_${ack.result}`;
+                resolve({
+                    success: ack.result === 0,
+                    result: ack.result,
+                    message: `payload ${action}: ${name}`,
+                });
+            };
+            this._ackListeners.add(listener);
+            const timer = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                this._ackListeners.delete(listener);
+                // No ACK is not necessarily a failure — the Pi may have driven
+                // the servo but the ACK got lost on the return link. Report
+                // optimistically and let the UI reconcile via NAMED_VALUE_INT.
+                resolve({ success: true, result: -1, message: `payload ${action} sent (no ACK)` });
+            }, timeoutMs);
+            try {
+                if (this._port && this._port.isOpen) this._port.write(buf);
+            } catch (err) {
+                if (!udpOk) {
+                    settled = true;
+                    this._ackListeners.delete(listener);
+                    clearTimeout(timer);
+                    resolve({ success: false, result: -1, message: err.message });
+                }
+            }
+        });
+    }
+
+    /** Current known payload state (true=open). */
+    getPayloadOpen() {
+        return !!this._state.payloadOpen;
+    }
+
+    /**
+     * Engage/disengage the Pi-side SAR mission orchestrator.
+     * Sends MAV_CMD_USER_2 with param1=1 (enable) or 0 (disable). Same SiK +
+     * UDP-fallback dual-path as the payload toggle.
+     */
+    async sendMissionEnable(enable) {
+        const param1 = enable ? 1.0 : 0.0;
+        const buf = buildCommandLong(
+            PI_TARGET_SYSTEM,
+            MAV_COMP_ID_ONBOARD_COMPUTER,
+            MAV_CMD_USER_2,
+            [param1, 0, 0, 0, 0, 0, 0],
+        );
+        let udpOk = false;
+        if (this._linkRouter && typeof this._linkRouter.sendCommandUdp === "function") {
+            udpOk = this._linkRouter.sendCommandUdp(buf);
+        }
+        if ((!this._port || !this._port.isOpen) && !udpOk) {
+            return { success: false, message: "Not connected" };
+        }
+        try {
+            if (this._port && this._port.isOpen) this._port.write(buf);
+        } catch (err) {
+            if (!udpOk) return { success: false, message: err.message };
+        }
+        return { success: true, message: `SAR mission ${enable ? "enabled" : "disabled"}` };
+    }
+
+    /** Reset mission flags (one-shot payload, mission state). */
+    async resetMission() {
+        if (this._payloadService) this._payloadService.resetMissionFlags();
+        console.log("[MAVLink] Mission reset");
+        return { success: true, message: "Mission reset" };
+    }
+
+    /**
+     * Send a MAV_CMD command and wait for COMMAND_ACK (with timeout).
+     * @param {number} command - MAV_CMD id
+     * @param {number[]} params - params 1..7
+     * @param {number} timeoutMs
+     * @returns {Promise<{success: boolean, result: number, message: string}>}
+     */
+    sendCommandWithAck(command, params, timeoutMs = 1500) {
+        if (!this._port || !this._port.isOpen) {
+            return Promise.resolve({ success: false, result: -1, message: "Not connected" });
+        }
+        const buf = buildCommandLong(this._targetSystem, this._targetComponent, command, params);
+        return new Promise((resolve) => {
+            let settled = false;
+            const listener = (ack) => {
+                if (ack.command !== command) return;
+                if (settled) return;
+                settled = true;
+                this._ackListeners.delete(listener);
+                clearTimeout(timer);
+                const name = MAV_RESULT[ack.result] || `RESULT_${ack.result}`;
+                resolve({
+                    success: ack.result === 0,
+                    result: ack.result,
+                    message: `COMMAND_ACK: ${name}`,
+                });
+            };
+            this._ackListeners.add(listener);
+            const timer = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                this._ackListeners.delete(listener);
+                resolve({ success: false, result: -1, message: "ACK timeout" });
+            }, timeoutMs);
+            try {
+                this._port.write(buf);
+            } catch (err) {
+                settled = true;
+                this._ackListeners.delete(listener);
+                clearTimeout(timer);
+                resolve({ success: false, result: -1, message: err.message });
+            }
+        });
+    }
+
+    /**
+     * Fly the drone to a (lat, lon, alt-AGL) point.
+     *
+     * Safety: refuses unless the FC is already in GUIDED. The operator
+     * (or "Engage GUIDED" button) must transition into GUIDED first, so
+     * the dashboard never overrides the pilot's stick/TX-switch authority.
+     * If the pilot flips out of GUIDED mid-mission, ArduPilot reverts
+     * control to them and subsequent flyTo calls will be refused here too.
+     */
+    async flyTo(lat, lon, alt) {
+        if (!this._port || !this._port.isOpen) {
+            return { success: false, message: "Not connected" };
+        }
+        if (Number.isNaN(lat) || Number.isNaN(lon)) {
+            return { success: false, message: "Invalid coordinates" };
+        }
+        const currentMode = this._state?.heartbeat?.flight_mode || "UNKNOWN";
+        if (currentMode !== "GUIDED") {
+            return {
+                success: false,
+                message: `Refused: FC is in ${currentMode}, not GUIDED. ` +
+                    "Flip TX switch to GUIDED or click 'Engage GUIDED' first.",
+            };
+        }
+
+        try {
+            const buf = buildSetPositionTargetGlobalInt(
+                this._targetSystem,
+                this._targetComponent,
+                lat, lon, Math.max(0, alt || 0),
+                this._seq++,
+            );
+            this._port.write(buf);
+            return { success: true, message: `Flying to ${lat.toFixed(6)}, ${lon.toFixed(6)} @ ${alt}m` };
+        } catch (err) {
+            return { success: false, message: err.message };
+        }
+    }
+
+    /**
+     * Upload a list of waypoints to the FC using the standard ArduPilot
+     * mission upload handshake:
+     *   GCS → MISSION_COUNT
+     *   FC  → MISSION_REQUEST_INT (seq=0)
+     *   GCS → MISSION_ITEM_INT (seq=0)
+     *   ... repeat for all items ...
+     *   FC  → MISSION_ACK
+     * Returns {success, message} based on the final ACK.
+     */
+    async uploadMission(waypoints) {
+        if (!this._port || !this._port.isOpen) {
+            return { success: false, message: "Not connected" };
+        }
+        if (!Array.isArray(waypoints) || waypoints.length === 0) {
+            return { success: false, message: "No waypoints to upload" };
+        }
+
+        const count = waypoints.length;
+        const targetSys = this._targetSystem;
+        const targetComp = this._targetComponent;
+        const HANDSHAKE_TIMEOUT_MS = 6000;
+
+        return new Promise((resolve) => {
+            let settled = false;
+            let nextSeq = 0;
+            const finish = (result) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                cleanup();
+                resolve(result);
+            };
+
+            const cleanup = this.onMessage((msg) => {
+                try {
+                    if (msg.msgId === MSG_MISSION_REQUEST_INT || msg.msgId === MSG_MISSION_REQUEST) {
+                        const req = decodeMissionRequestInt(msg.payload);
+                        if (!req) return;
+                        const wp = waypoints[req.seq] || waypoints[nextSeq];
+                        if (!wp) {
+                            finish({ success: false, message: `FC asked for seq ${req.seq}, out of range` });
+                            return;
+                        }
+                        const itemBuf = buildMissionItemInt(targetSys, targetComp, {
+                            ...wp,
+                            seq: req.seq,
+                            current: req.seq === 0 ? 1 : 0,
+                            autocontinue: 1,
+                        }, this._seq++);
+                        try { this._port.write(itemBuf); } catch (err) {
+                            finish({ success: false, message: `Write failed: ${err.message}` });
+                            return;
+                        }
+                        nextSeq = req.seq + 1;
+                    } else if (msg.msgId === MSG_MISSION_ACK) {
+                        const ack = decodeMissionAck(msg.payload);
+                        if (!ack) return;
+                        if (ack.type === 0) {
+                            finish({ success: true, message: `${count} waypoints uploaded` });
+                        } else {
+                            finish({ success: false, message: `MISSION_ACK type=${ack.type}` });
+                        }
+                    }
+                } catch (err) {
+                    finish({ success: false, message: `Handshake error: ${err.message}` });
+                }
+            });
+
+            const timer = setTimeout(() => {
+                finish({ success: false, message: "Mission upload timed out" });
+            }, HANDSHAKE_TIMEOUT_MS);
+
+            // Kick off
+            try {
+                this._port.write(buildMissionCount(targetSys, targetComp, count, this._seq++));
+            } catch (err) {
+                finish({ success: false, message: `Initial write failed: ${err.message}` });
+            }
+        });
+    }
+
+    /**
+     * Command the gimbal to (pitch, yaw) in degrees using
+     * MAV_CMD_DO_MOUNT_CONTROL (cmd 205).
+     *  param1 = pitch deg, param2 = roll deg (0), param3 = yaw deg
+     *  param7 = MAV_MOUNT_MODE_MAVLINK_TARGETING (2)
+     */
+    async setGimbalAngle(pitch, yaw) {
+        if (!this._port || !this._port.isOpen) {
+            return { success: false, message: "Not connected" };
+        }
+        const result = await this.sendCommandWithAck(
+            MAV_CMD_DO_MOUNT_CONTROL,
+            [pitch, 0, yaw, 0, 0, 0, 2],
+            1500,
+        );
+        return result.success
+            ? { success: true, message: `Gimbal → pitch ${pitch}°, yaw ${yaw}°` }
+            : { success: false, message: result.message };
+    }
+
     /**
      * Get available connection profiles.
      * @returns {Array<{name: string, connection_string: string, baud_rate: number, description: string}>}
      */
     getConnectionProfiles() {
-        const comPort = process.env.MAVLINK_CONNECTION_STRING || "COM3";
+        const comPort = process.env.MAVLINK_CONNECTION_STRING || getDefaultSerialPortByPlatform();
         const baudRate = parseInt(process.env.MAVLINK_BAUD_RATE || "57600");
         return [
             {
@@ -648,6 +1260,46 @@ class MAVLinkHandler {
         ];
     }
 
+    /**
+     * List serial ports available on the host machine.
+     * @returns {Promise<Array<{path: string, manufacturer?: string, serialNumber?: string, vendorId?: string, productId?: string, friendlyName: string}>>}
+     */
+    async listSerialPorts() {
+        try {
+            const ports = await SerialPort.list();
+            const aliasMap = buildLinuxSerialAliasMap();
+
+            const ranked = ports
+                .map((port) => {
+                    const aliasPath = aliasMap.get(port.path);
+                    const preferredPath = aliasPath || port.path;
+                    const primaryName =
+                        port.friendlyName ||
+                        port.manufacturer ||
+                        preferredPath;
+
+                    return {
+                        path: preferredPath,
+                        manufacturer: port.manufacturer,
+                        serialNumber: port.serialNumber,
+                        vendorId: port.vendorId,
+                        productId: port.productId,
+                        friendlyName: primaryName,
+                        likelyMavlink: scoreSerialPath(preferredPath) < 10,
+                    };
+                })
+                .sort((a, b) => {
+                    const scoreDiff = scoreSerialPath(a.path) - scoreSerialPath(b.path);
+                    if (scoreDiff !== 0) return scoreDiff;
+                    return a.path.localeCompare(b.path);
+                });
+
+            return ranked;
+        } catch (error) {
+            return [];
+        }
+    }
+
     /** Clean up on app close. */
     destroy() {
         this._stopBroadcast();
@@ -658,9 +1310,21 @@ class MAVLinkHandler {
 
     // ── Private Methods ─────────────────────────────────────
 
-    _handleMessage(msg) {
+    _handleMessage(msg, source = "serial") {
         // Skip GCS heartbeats
         if (msg.msgId === MSG_HEARTBEAT && msg.sysId === 255) return;
+
+        // Notify the link router so its dots/failover stay live.
+        if (msg.msgId === MSG_HEARTBEAT && source === "udp" && this._linkRouter) {
+            try { this._linkRouter.noteUdpHeartbeat(); } catch { /* ignore */ }
+        }
+
+        // Fan out to generic listeners (mission upload, gimbal ack, etc.)
+        if (this._messageListeners.size) {
+            for (const listener of this._messageListeners) {
+                try { listener(msg, source); } catch { /* ignore */ }
+            }
+        }
 
         // Debug: count messages (log every 50 heartbeats)
         this._msgCounts[msg.msgId] = (this._msgCounts[msg.msgId] || 0) + 1;
@@ -717,9 +1381,37 @@ class MAVLinkHandler {
                     if (gps) this._state.gps = gps;
                     break;
                 }
+                case MSG_COMMAND_ACK: {
+                    const ack = decodeCommandAck(msg.payload);
+                    if (ack && this._ackListeners.size) {
+                        for (const listener of this._ackListeners) {
+                            try { listener(ack); } catch { /* ignore */ }
+                        }
+                    }
+                    break;
+                }
                 case MSG_STATUSTEXT: {
                     const text = decodeStatusText(msg.payload);
                     if (text) this._state.status_text = text;
+                    break;
+                }
+                case MSG_NAMED_VALUE_INT: {
+                    const nv = decodeNamedValueInt(msg.payload);
+                    if (nv && nv.name === "PLDOPEN") {
+                        const isOpen = nv.value !== 0;
+                        if (this._state.payloadOpen !== isOpen) {
+                            this._state.payloadOpen = isOpen;
+                            if (this._window && !this._window.isDestroyed()) {
+                                try {
+                                    this._window.webContents.send("payload-toggle-state", {
+                                        open: isOpen,
+                                        source: source,
+                                        ts: Date.now(),
+                                    });
+                                } catch { /* window may be gone */ }
+                            }
+                        }
+                    }
                     break;
                 }
             }

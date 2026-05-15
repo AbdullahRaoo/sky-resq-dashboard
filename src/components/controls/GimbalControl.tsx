@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useConnected } from "@/hooks/useTelemetry";
 
 const PRESETS = [
@@ -18,15 +18,39 @@ export default function GimbalControl() {
     const connected = useConnected();
     const [pitch, setPitch] = useState(-90);
     const [yaw, setYaw] = useState(0);
+    const [busy, setBusy] = useState(false);
+    const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    /** Send MAV_CMD_DO_MOUNT_CONTROL via IPC; coalesce rapid slider changes. */
+    const dispatchGimbal = useCallback((p: number, y: number) => {
+        if (!window.electron?.setGimbalAngle) return;
+        setBusy(true);
+        window.electron.setGimbalAngle(p, y).finally(() => setBusy(false));
+    }, []);
+
+    const queueDispatch = useCallback((p: number, y: number) => {
+        if (sendTimer.current) clearTimeout(sendTimer.current);
+        sendTimer.current = setTimeout(() => dispatchGimbal(p, y), 150);
+    }, [dispatchGimbal]);
+
+    useEffect(() => {
+        if (!connected) return;
+        queueDispatch(pitch, yaw);
+        return () => {
+            if (sendTimer.current) clearTimeout(sendTimer.current);
+        };
+    }, [pitch, yaw, connected, queueDispatch]);
 
     const applyPreset = useCallback((p: number, y: number) => {
         setPitch(p);
         setYaw(y);
-        // TODO: Send MAV_CMD_DO_MOUNT_CONTROL via IPC
-    }, []);
+        // Immediate dispatch for presets (skip the debounce).
+        if (sendTimer.current) clearTimeout(sendTimer.current);
+        dispatchGimbal(p, y);
+    }, [dispatchGimbal]);
 
     return (
-        <div className="gimbal-control">
+        <div className="gimbal-control" data-busy={busy ? "true" : "false"}>
             <div className="gimbal-presets">
                 {PRESETS.map((preset) => (
                     <button

@@ -8,6 +8,7 @@
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useElectronTelemetry } from "@/hooks/useElectronTelemetry";
+import { useSurvivorIPC } from "@/hooks/useSurvivorIPC";
 import { useStatusText } from "@/hooks/useTelemetry";
 import { useNavStore } from "@/store/navStore";
 import { useThemeStore } from "@/store/themeStore";
@@ -29,6 +30,13 @@ import MissionPanel from "@/components/mission/MissionPanel";
 import VideoFeed from "@/components/video/VideoFeed";
 import ConsoleLog from "@/components/status/ConsoleLog";
 import SettingsDialog from "@/components/settings/SettingsDialog";
+import SurvivorFilters from "@/components/survivors/SurvivorFilters";
+import SurvivorTable from "@/components/survivors/SurvivorTable";
+import SystemWarningBanner from "@/components/status/SystemWarningBanner";
+import DemoBanner from "@/components/demo/DemoBanner";
+import DemoChecklist from "@/components/demo/DemoChecklist";
+import DemoStepPrompt from "@/components/demo/DemoStepPrompt";
+import { useDemoStore } from "@/store/demoStore";
 
 const DroneMap = dynamic(
   () => import("@/components/map/DroneMap"),
@@ -37,9 +45,11 @@ const DroneMap = dynamic(
 
 export default function DashboardPage() {
   useElectronTelemetry();
+  useSurvivorIPC();
   const statusText = useStatusText();
   const activeView = useNavStore((s) => s.activeView);
   const theme = useThemeStore((s) => s.theme);
+  const demoMode = useDemoStore((s) => s.demoMode);
   const [videoOpen, setVideoOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -50,6 +60,8 @@ export default function DashboardPage() {
 
   return (
     <div className="electron-app">
+      <SystemWarningBanner />
+      {demoMode && <DemoBanner />}
       <div className="dashboard-layout">
         <Sidebar onSettingsClick={() => setSettingsOpen(true)} />
         <Header />
@@ -57,27 +69,44 @@ export default function DashboardPage() {
         <main className="main-content">
           {/* ── Map Area ─────────────────────────────── */}
           <div className="map-area">
-            <DroneMap />
-
-            {videoOpen && activeView === "dashboard" && (
-              <div className="video-overlay">
-                <VideoFeed />
+            {activeView === "survivors" ? (
+              <div className="survivors-view">
+                <div className="survivors-view__header">
+                  <div>
+                    <div className="survivors-view__title">Survivor Detections</div>
+                    <div className="survivors-view__subtitle">
+                      Toggle map visibility, mark rescued, or dispatch the drone from this table.
+                    </div>
+                  </div>
+                </div>
+                <SurvivorFilters />
+                <SurvivorTable />
               </div>
-            )}
-            {activeView === "dashboard" && (
-              <button
-                className="video-toggle-btn"
-                onClick={() => setVideoOpen(!videoOpen)}
-                title={videoOpen ? "Hide video" : "Show video"}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polygon points="23 7 16 12 23 17 23 7" />
-                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                </svg>
-              </button>
-            )}
+            ) : (
+              <>
+                <DroneMap />
 
-            <AlertPanel />
+                {videoOpen && activeView === "dashboard" && (
+                  <div className="video-overlay">
+                    <VideoFeed />
+                  </div>
+                )}
+                {activeView === "dashboard" && (
+                  <button
+                    className="video-toggle-btn"
+                    onClick={() => setVideoOpen(!videoOpen)}
+                    title={videoOpen ? "Hide video" : "Show video"}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polygon points="23 7 16 12 23 17 23 7" />
+                      <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                    </svg>
+                  </button>
+                )}
+
+                <AlertPanel />
+              </>
+            )}
           </div>
 
           {/* ── Right Panel ──────────────────────────── */}
@@ -86,6 +115,7 @@ export default function DashboardPage() {
               {activeView === "dashboard" && "Dashboard"}
               {activeView === "mission" && "Mission Planner"}
               {activeView === "camera" && "Camera & Payload"}
+              {activeView === "survivors" && "Survivor Operations"}
             </div>
 
             <div className={`right-panel__content ${activeView === "camera" ? "right-panel__content--camera" : ""}`}>
@@ -161,6 +191,24 @@ export default function DashboardPage() {
                   </div>
                 </>
               )}
+
+              {/* ══ SURVIVORS VIEW ══ */}
+              {activeView === "survivors" && (
+                <>
+                  <div className="panel-section">
+                    <div className="panel-section__title">Connection</div>
+                    <ConnectionPanel />
+                  </div>
+                  <div className="panel-section">
+                    <div className="panel-section__title">Rescue Payload</div>
+                    <PayloadControl />
+                  </div>
+                  <div className="panel-section">
+                    <div className="panel-section__title">Quick Actions</div>
+                    <QuickActions />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </main>
@@ -170,6 +218,10 @@ export default function DashboardPage() {
 
       {/* Settings Popup */}
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {/* Demo mode overlays */}
+      {demoMode && <DemoChecklist />}
+      {demoMode && <DemoStepPrompt />}
     </div>
   );
 }

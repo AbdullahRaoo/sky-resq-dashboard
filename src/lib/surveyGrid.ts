@@ -32,7 +32,7 @@ function offsetLatLon(lat: number, lon: number, northM: number, eastM: number): 
 /**
  * Distance between two lat/lon points in meters (Haversine).
  */
-function haversineDistance(a: LatLng, b: LatLng): number {
+export function haversineDistance(a: LatLng, b: LatLng): number {
     const dLat = deg2rad(b.lat - a.lat);
     const dLon = deg2rad(b.lon - a.lon);
     const sa = Math.sin(dLat / 2);

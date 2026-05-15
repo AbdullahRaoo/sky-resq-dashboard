@@ -4,6 +4,16 @@
  */
 
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+
+function getDefaultComPort(): string {
+    if (typeof window === "undefined") return "COM3";
+
+    const platform = window.navigator.platform.toLowerCase();
+    if (platform.includes("win")) return "COM3";
+    if (platform.includes("mac")) return "/dev/cu.usbserial-0001";
+    return "/dev/ttyUSB0";
+}
 
 export interface GcsSettings {
     // Connection
@@ -30,15 +40,30 @@ export interface GcsSettings {
     mapStyle: "dark" | "osm" | "satellite";
     altitudeUnit: "m" | "ft";
     speedUnit: "m/s" | "km/h" | "knots";
+
+    // Video — two-tier host with auto-failover
+    /** Preferred Pi host (LAN). Probed first; if mediamtx responds within
+     * the probe timeout this is used for <5 ms LAN-direct video.
+     * Demo-time: same as Pi's IP on the Blaze Wi-Fi (default 192.168.1.139). */
+    piLanHost: string;
+    /** Fallback Pi host (Tailscale). Used when piLanHost is unreachable
+     * (e.g. laptop is not on the same Blaze Wi-Fi). */
+    piRemoteHost: string;
+    /** Force HLS instead of WHEP/WebRTC. HLS has 2–3 s buffering which
+     * masks Tailscale-relay jitter better than WHEP's real-time queueing.
+     * Use when Pi is on symmetric NAT (Tailscale uses DERP relay). */
+    lowBandwidthMode: boolean;
 }
 
 interface SettingsStore extends GcsSettings {
     updateSettings: (partial: Partial<GcsSettings>) => void;
 }
 
-export const useSettingsStore = create<SettingsStore>((set) => ({
+// Persisted to localStorage so demo-time tweaks (Pi LAN host, Low Bandwidth
+// Mode, etc.) survive dashboard restarts. Storage key bumps on schema break.
+export const useSettingsStore = create<SettingsStore>()(persist((set) => ({
     // Connection
-    comPort: "COM3",
+    comPort: getDefaultComPort(),
     baudRate: 57600,
 
     // Mission defaults
@@ -62,5 +87,13 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
     altitudeUnit: "m",
     speedUnit: "m/s",
 
+    // Video
+    piLanHost: "192.168.1.139",
+    piRemoteHost: "100.123.87.26",
+    lowBandwidthMode: false,
+
     updateSettings: (partial) => set((s) => ({ ...s, ...partial })),
+}), {
+    name: "skyresq-settings-v1",
+    storage: createJSONStorage(() => localStorage),
 }));

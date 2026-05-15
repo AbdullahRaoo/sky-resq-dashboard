@@ -10,10 +10,11 @@
 
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMissionStore } from "@/store/missionStore";
 import { generateLawnmowerGrid, calculateSpacing } from "@/lib/surveyGrid";
 import { useConnected, useHeartbeat, useGps } from "@/hooks/useTelemetry";
+import type { SarMissionStateEvent } from "@/types/electron";
 
 type Phase = 1 | 2 | 3 | 4 | 5;
 
@@ -39,6 +40,15 @@ export default function MissionPanel() {
 
     const [phase, setPhase] = useState<Phase>(1);
     const [uploading, setUploading] = useState(false);
+    const [sarEnabled, setSarEnabled] = useState(false);
+    const [sarBusy, setSarBusy] = useState(false);
+    const [sarMsg, setSarMsg] = useState<string | null>(null);
+    const [sarState, setSarState] = useState<SarMissionStateEvent | null>(null);
+
+    useEffect(() => {
+        if (!window.electron?.onMissionState) return;
+        return window.electron.onMissionState(setSarState);
+    }, []);
 
     const gpsReady = gps.fix_type >= 3 && gps.satellites_visible >= 6;
 
@@ -95,6 +105,23 @@ export default function MissionPanel() {
         setMissionState("active");
     }, [setMissionState]);
 
+    // ── SAR autonomy engage/disengage ──
+    const handleSarToggle = useCallback(async () => {
+        if (!window.electron || sarBusy) return;
+        const next = !sarEnabled;
+        setSarBusy(true);
+        setSarMsg(null);
+        try {
+            const result = await window.electron.missionEnable(next);
+            setSarMsg(result.message);
+            if (result.success) setSarEnabled(next);
+        } catch (e) {
+            setSarMsg(e instanceof Error ? e.message : "engage failed");
+        } finally {
+            setSarBusy(false);
+        }
+    }, [sarEnabled, sarBusy]);
+
     // ── Phase 5: RTL ──
     const handleRTL = useCallback(async () => {
         if (!window.electron) return;
@@ -130,6 +157,55 @@ export default function MissionPanel() {
             <div className="mission-phase-header">
                 <div className="mission-phase-title">{PHASE_LABELS[phase].title}</div>
                 <div className="mission-phase-sub">{PHASE_LABELS[phase].subtitle}</div>
+            </div>
+
+            {/* SAR autonomy — always visible regardless of mission phase, since
+                the orchestrator is a separate gate from the mission upload flow */}
+            <div className="mission-action-stack" style={{ margin: "0 0 12px" }}>
+                <button
+                    className="mission-btn"
+                    onClick={handleSarToggle}
+                    disabled={!connected || sarBusy}
+                    style={{
+                        background: sarEnabled
+                            ? "linear-gradient(180deg, var(--accent-warning, #f59e0b), #b45309)"
+                            : "linear-gradient(180deg, var(--accent-primary, #34d399), #047857)",
+                        color: "#0c1018",
+                        fontWeight: 600,
+                    }}
+                    title={sarEnabled
+                        ? "Disengage Pi sar_orchestrator (operator kill-switch)"
+                        : "Engage Pi sar_orchestrator — detect→approach→drop→RTL fully autonomous"}
+                >
+                    {sarBusy ? "..." : sarEnabled
+                        ? "⏹ Disengage SAR Autonomy"
+                        : "🤖 Engage SAR Autonomy"}
+                </button>
+                {sarMsg && (
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{sarMsg}</div>
+                )}
+                {sarState && (
+                    <div style={{
+                        fontSize: "0.78rem",
+                        padding: "8px 10px",
+                        background: "rgba(52, 211, 153, 0.06)",
+                        border: "1px solid rgba(52, 211, 153, 0.2)",
+                        borderRadius: 6,
+                        color: "var(--text-primary)",
+                        lineHeight: 1.5,
+                    }}>
+                        <div style={{ fontWeight: 600, color: "var(--accent-primary, #34d399)" }}>
+                            SAR: {sarState.state} <span style={{ opacity: 0.6 }}>({sarState.sub_state})</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", opacity: 0.8 }}>
+                            {sarState.target_distance_m != null && (
+                                <span>→ {sarState.target_distance_m.toFixed(1)} m</span>
+                            )}
+                            <span>{sarState.vision_locked ? "👁 lock" : "○ no lock"}</span>
+                            <span>{sarState.gps_healthy ? "📡 GPS" : "✗ GPS"}</span>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* ═══ Phase 1: PLAN ═══ */}
@@ -272,6 +348,7 @@ export default function MissionPanel() {
                             onClick={() => setPhase(4)} disabled={missionState !== "active" && missionState !== "paused"}>
                             Proceed to Target Action →
                         </button>
+
                     </div>
                 </div>
             )}

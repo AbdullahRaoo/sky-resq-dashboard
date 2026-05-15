@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "concurrently -k \"npm run dev:next\" \"wait-on tcp:3000 && electron .\"",
     "dev:next": "npx -y node@20.19.0 ./node_modules/next/dist/bin/next dev",
+    "dev:web": "npx -y node@20.19.0 ./node_modules/next/dist/bin/next dev",
     "dev:electron": "wait-on tcp:3000 && electron .",
     "build": "npx -y node@20.19.0 ./node_modules/next/dist/bin/next build",
     "start": "npx -y node@20.19.0 ./node_modules/next/dist/bin/next start",
