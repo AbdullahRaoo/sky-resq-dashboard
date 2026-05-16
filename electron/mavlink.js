@@ -1473,20 +1473,6 @@ class MAVLinkHandler {
                         hb.mav_type !== MAV_TYPE_GCS &&
                         hb.autopilot !== MAV_AUTOPILOT_INVALID;
 
-                    // One-shot diagnostic per unique sender — tells us at a
-                    // glance whether the FC heartbeat is reaching us at all
-                    // and how we decided about latching.
-                    if (!this._hbSeen) this._hbSeen = new Set();
-                    const tag = `${msg.sysId}:${msg.compId}`;
-                    if (!this._hbSeen.has(tag)) {
-                        this._hbSeen.add(tag);
-                        console.log(
-                            `[MAVLink][hb] from sysid=${msg.sysId} compid=${msg.compId} ` +
-                            `type=${hb?.mav_type} autopilot=${hb?.autopilot} ` +
-                            `source=${source} -> ${isAutopilot ? "LATCHING" : "ignored"}`
-                        );
-                    }
-
                     if (isAutopilot) {
                         const nowMs = Date.now();
                         if (source === "serial") this._lastFcSerialMs = nowMs;
