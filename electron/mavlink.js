@@ -54,6 +54,7 @@ const MAV_CMD_DO_MOUNT_CONTROL = 205;
 const MAV_CMD_DO_SET_MISSION_CURRENT = 224;
 const MAV_CMD_USER_1 = 31010;                   // repurposed: payload toggle to Pi
 const MAV_CMD_USER_2 = 31011;                   // repurposed: SAR mission enable
+const MAV_CMD_USER_3 = 31012;                   // repurposed: manual gimbal setpoint to Pi
 const MAV_COMP_ID_ONBOARD_COMPUTER = 191;       // companion Pi component id
 // Pi mavlink_bridge advertises sysid=2 compid=191 so ArduPilot's MAVLink
 // router treats it as a separate system and forwards GCS→(2,191) cleanly
@@ -1334,17 +1335,25 @@ class MAVLinkHandler {
      *  param7 = MAV_MOUNT_MODE_MAVLINK_TARGETING (2)
      */
     async setGimbalAngle(pitch, yaw) {
-        if (!this._port || !this._port.isOpen) {
+        // The Z-1 Mini gimbal is driven by the Pi gimbal_controller, NOT
+        // the FC. Send MAV_CMD_USER_3 (param1=pitch, param2=yaw) to the
+        // Pi (sysid=2/comp=191) — the mavlink_bridge intercepts it and
+        // publishes /gimbal/cmd/set_attitude. Same Pi-bound pattern as the
+        // payload toggle; the old DO_MOUNT_CONTROL-to-FC path was a no-op
+        // because the FC has no gimbal attached.
+        const buf = buildCommandLong(
+            PI_TARGET_SYSTEM,
+            MAV_COMP_ID_ONBOARD_COMPUTER,
+            MAV_CMD_USER_3,
+            [pitch, yaw, 0, 0, 0, 0, 0],
+        );
+        // Idempotent fire-and-forget setpoint — dual-transport (SiK + UDP)
+        // is fine and matches the payload reliability approach.
+        const sent = this._writeToFc(buf);
+        if (!sent) {
             return { success: false, message: "Not connected" };
         }
-        const result = await this.sendCommandWithAck(
-            MAV_CMD_DO_MOUNT_CONTROL,
-            [pitch, 0, yaw, 0, 0, 0, 2],
-            1500,
-        );
-        return result.success
-            ? { success: true, message: `Gimbal → pitch ${pitch}°, yaw ${yaw}°` }
-            : { success: false, message: result.message };
+        return { success: true, message: `Gimbal → pitch ${pitch}°, yaw ${yaw}°` };
     }
 
     /**
