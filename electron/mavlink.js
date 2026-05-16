@@ -385,16 +385,22 @@ function decodeGpsRaw(buf) {
 
 function decodeMissionRequestInt(buf) {
     // Wire: seq(u16,2) @ 0 | target_system(u8,1) @ 2 | target_component(u8,1) @ 3 | mission_type(u8,1) @ 4
-    if (buf.length < 4) return null;
+    // MAVLink v2 trims trailing zero bytes, so the critical seq=0 request
+    // commonly arrives as 3 bytes (mission_type / target_component = 0
+    // stripped). The old `length < 4` guard rejected exactly that frame,
+    // so item 0 was never sent and every upload stalled. Pad, then read.
+    if (!buf || buf.length < 1) return null;
     const p = padPayload(buf, 5);
-    return { seq: p.readUInt16LE(0), missionType: buf.length >= 5 ? p.readUInt8(4) : 0 };
+    return { seq: p.readUInt16LE(0), missionType: p.readUInt8(4) };
 }
 
 function decodeMissionAck(buf) {
     // Wire: target_system(u8,1) @ 0 | target_component(u8,1) @ 1 | type(u8,1) @ 2 | mission_type(u8,1) @ 3
-    if (buf.length < 3) return null;
+    // Same v2-truncation hazard: a success ACK (type=0) with trailing
+    // zeros trimmed can be 2 bytes — must not be rejected.
+    if (!buf || buf.length < 1) return null;
     const p = padPayload(buf, 4);
-    return { type: p.readUInt8(2), missionType: buf.length >= 4 ? p.readUInt8(3) : 0 };
+    return { type: p.readUInt8(2), missionType: p.readUInt8(3) };
 }
 
 function decodeCommandAck(buf) {
@@ -694,6 +700,7 @@ class MAVLinkHandler {
         this._msgCounts = {};  // debug: track message counts
         this._streamsRequested = false; // flag: have we requested telemetry streams?
         this._lastFcSerialMs = 0; // wall-clock ms of last direct-serial FC heartbeat
+        this._missionUploadInFlight = false; // reentrancy guard for uploadMission
         /** @type {Set<(ack: {command: number, result: number, progress: number}) => void>} */
         this._ackListeners = new Set();
         /** @type {Set<(msg: {msgId: number, sysId: number, compId: number, payload: Buffer}) => void>} */
@@ -854,54 +861,120 @@ class MAVLinkHandler {
      * Arm the drone.
      * @returns {Promise<{success: boolean, message: string}>}
      */
-    async arm() {
-        if (!this._port || !this._port.isOpen) {
-            return { success: false, message: "Not connected" };
+    /**
+     * Send a buffer to the FC over every available transport: direct SiK
+     * serial AND the Tailscale-UDP/Pi-mirror path. GCS→FC over SiK is
+     * unreliable in this build — commands the FC must process (arm, mode,
+     * mission) time out on the serial uplink — so they are also mirrored
+     * over UDP, exactly like the payload command. Returns true if at least
+     * one transport accepted the write.
+     */
+    _writeToFc(buf) {
+        let sent = false;
+        if (this._port && this._port.isOpen) {
+            try { this._port.write(buf); sent = true; } catch { /* ignore */ }
         }
-        const buf = buildCommandLong(
-            this._targetSystem, this._targetComponent,
-            MAV_CMD_COMPONENT_ARM_DISARM,
-            [1, 0, 0, 0, 0, 0, 0]
-        );
-        this._port.write(buf);
-        return { success: true, message: "Arm command sent" };
+        if (this._linkRouter && typeof this._linkRouter.sendCommandUdp === "function") {
+            if (this._linkRouter.sendCommandUdp(buf)) sent = true;
+        }
+        return sent;
     }
+
+    /**
+     * Send over EXACTLY ONE transport (serial preferred, UDP fallback).
+     * Stateful lock-step protocols — the mission upload handshake — must
+     * not be dual-transmitted: duplicate MISSION_ITEMs arrive out of order
+     * and ArduPilot rejects the mission with MAV_MISSION_INVALID_SEQUENCE
+     * (MISSION_ACK type=13). Returns true if one transport accepted it.
+     */
+    _writeToFcSingle(buf) {
+        if (this._port && this._port.isOpen) {
+            try { this._port.write(buf); return true; } catch { /* fall through to UDP */ }
+        }
+        if (this._linkRouter && typeof this._linkRouter.sendCommandUdp === "function") {
+            return this._linkRouter.sendCommandUdp(buf);
+        }
+        return false;
+    }
+
+    /**
+     * Wait until `predicate()` is true or `timeoutMs` elapses. Resolves
+     * with the bool outcome. Used to confirm a command actually took effect
+     * by observing the FC heartbeat, instead of falsely reporting success
+     * the moment a byte was written.
+     */
+    _awaitState(predicate, timeoutMs = 4000, pollMs = 200) {
+        return new Promise((resolve) => {
+            const t0 = Date.now();
+            const check = setInterval(() => {
+                let ok = false;
+                try { ok = !!predicate(); } catch { ok = false; }
+                if (ok) {
+                    clearInterval(check);
+                    resolve(true);
+                } else if (Date.now() - t0 > timeoutMs) {
+                    clearInterval(check);
+                    resolve(false);
+                }
+            }, pollMs);
+        });
+    }
+
+    async arm() { return this._armDisarm(true); }
 
     /**
      * Disarm the drone.
      * @returns {Promise<{success: boolean, message: string}>}
      */
-    async disarm() {
-        if (!this._port || !this._port.isOpen) {
-            return { success: false, message: "Not connected" };
-        }
+    async disarm() { return this._armDisarm(false); }
+
+    async _armDisarm(wantArmed) {
+        const label = wantArmed ? "Arm" : "Disarm";
         const buf = buildCommandLong(
             this._targetSystem, this._targetComponent,
             MAV_CMD_COMPONENT_ARM_DISARM,
-            [0, 0, 0, 0, 0, 0, 0]
+            [wantArmed ? 1 : 0, 0, 0, 0, 0, 0, 0]
         );
-        this._port.write(buf);
-        return { success: true, message: "Disarm command sent" };
+        if (!this._writeToFc(buf)) {
+            return { success: false, message: "Not connected" };
+        }
+        const ok = await this._awaitState(
+            () => !!this._state.heartbeat.armed === wantArmed
+        );
+        if (ok) return { success: true, message: `${label}ed` };
+        return {
+            success: false,
+            message: `${label} not confirmed — FC still ${this._state.heartbeat.armed ? "armed" : "disarmed"} (check arming/safety)`,
+        };
     }
 
     /**
-     * Set flight mode by name.
+     * Set flight mode by name. Confirms via the FC heartbeat instead of
+     * reporting success on the serial write alone (the old behavior, which
+     * masked failures like "GUIDED requires position").
      * @param {string} modeName
      * @returns {Promise<{success: boolean, message: string}>}
      */
     async setMode(modeName) {
-        if (!this._port || !this._port.isOpen) {
-            return { success: false, message: "Not connected" };
-        }
-
         const modeId = MODE_NAME_TO_ID[modeName.toUpperCase()];
         if (modeId === undefined) {
             return { success: false, message: `Unknown mode: ${modeName}` };
         }
 
         const buf = buildSetMode(this._targetSystem, modeId);
-        this._port.write(buf);
-        return { success: true, message: `Set mode to ${modeName}` };
+        if (!this._writeToFc(buf)) {
+            return { success: false, message: "Not connected" };
+        }
+
+        const target = modeName.toUpperCase();
+        const ok = await this._awaitState(
+            () => (this._state.heartbeat.flight_mode || "").toUpperCase() === target
+        );
+        if (ok) return { success: true, message: `Mode is ${target}` };
+        return {
+            success: false,
+            message: `Mode change to ${target} not confirmed — FC in ${(this._state.heartbeat.flight_mode || "UNKNOWN")} (mode may need GPS/position or be RC-blocked)`,
+        };
     }
 
     /** Return the drone's current position (lat, lon, relative_alt). */
@@ -1161,27 +1234,52 @@ class MAVLinkHandler {
      * Returns {success, message} based on the final ACK.
      */
     async uploadMission(waypoints) {
-        if (!this._port || !this._port.isOpen) {
+        const serialOk = !!(this._port && this._port.isOpen);
+        const udpOk = !!(this._linkRouter && typeof this._linkRouter.sendCommandUdp === "function");
+        if (!serialOk && !udpOk) {
             return { success: false, message: "Not connected" };
         }
         if (!Array.isArray(waypoints) || waypoints.length === 0) {
             return { success: false, message: "No waypoints to upload" };
         }
 
+        // Reentrancy guard. A second concurrent upload registers a second
+        // message listener; both then answer every MISSION_REQUEST, sending
+        // duplicate items and desyncing the FC. Reject overlaps instead.
+        if (this._missionUploadInFlight) {
+            return { success: false, message: "A mission upload is already in progress" };
+        }
+        this._missionUploadInFlight = true;
+
         const count = waypoints.length;
         const targetSys = this._targetSystem;
         const targetComp = this._targetComponent;
-        const HANDSHAKE_TIMEOUT_MS = 6000;
+        // Inactivity timeout: reset on every MISSION_REQUEST so a slow but
+        // progressing transfer (14 items over the Tailscale DERP relay) is
+        // not killed mid-handshake. Only a genuine stall (no FC request for
+        // this long) fails the upload.
+        const INACTIVITY_TIMEOUT_MS = 7000;
 
         return new Promise((resolve) => {
             let settled = false;
             let nextSeq = 0;
+            let timer = null;
             const finish = (result) => {
                 if (settled) return;
                 settled = true;
-                clearTimeout(timer);
+                if (timer) clearTimeout(timer);
                 cleanup();
+                this._missionUploadInFlight = false;
                 resolve(result);
+            };
+            const armTimer = () => {
+                if (timer) clearTimeout(timer);
+                timer = setTimeout(() => {
+                    finish({
+                        success: false,
+                        message: `Mission upload stalled (no FC activity for ${INACTIVITY_TIMEOUT_MS / 1000}s, got ${nextSeq}/${count} items)`,
+                    });
+                }, INACTIVITY_TIMEOUT_MS);
             };
 
             const cleanup = this.onMessage((msg) => {
@@ -1189,6 +1287,7 @@ class MAVLinkHandler {
                     if (msg.msgId === MSG_MISSION_REQUEST_INT || msg.msgId === MSG_MISSION_REQUEST) {
                         const req = decodeMissionRequestInt(msg.payload);
                         if (!req) return;
+                        armTimer(); // progress — reset the inactivity clock
                         const wp = waypoints[req.seq] || waypoints[nextSeq];
                         if (!wp) {
                             finish({ success: false, message: `FC asked for seq ${req.seq}, out of range` });
@@ -1200,8 +1299,8 @@ class MAVLinkHandler {
                             current: req.seq === 0 ? 1 : 0,
                             autocontinue: 1,
                         }, this._seq++);
-                        try { this._port.write(itemBuf); } catch (err) {
-                            finish({ success: false, message: `Write failed: ${err.message}` });
+                        if (!this._writeToFcSingle(itemBuf)) {
+                            finish({ success: false, message: `Write failed for seq ${req.seq}` });
                             return;
                         }
                         nextSeq = req.seq + 1;
@@ -1211,7 +1310,7 @@ class MAVLinkHandler {
                         if (ack.type === 0) {
                             finish({ success: true, message: `${count} waypoints uploaded` });
                         } else {
-                            finish({ success: false, message: `MISSION_ACK type=${ack.type}` });
+                            finish({ success: false, message: `FC rejected mission (MISSION_ACK type=${ack.type})` });
                         }
                     }
                 } catch (err) {
@@ -1219,15 +1318,11 @@ class MAVLinkHandler {
                 }
             });
 
-            const timer = setTimeout(() => {
-                finish({ success: false, message: "Mission upload timed out" });
-            }, HANDSHAKE_TIMEOUT_MS);
+            armTimer();
 
-            // Kick off
-            try {
-                this._port.write(buildMissionCount(targetSys, targetComp, count, this._seq++));
-            } catch (err) {
-                finish({ success: false, message: `Initial write failed: ${err.message}` });
+            // Kick off — MISSION_COUNT over every available transport.
+            if (!this._writeToFcSingle(buildMissionCount(targetSys, targetComp, count, this._seq++))) {
+                finish({ success: false, message: "Initial MISSION_COUNT write failed (no transport)" });
             }
         });
     }

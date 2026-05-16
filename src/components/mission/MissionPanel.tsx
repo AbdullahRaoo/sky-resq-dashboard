@@ -10,7 +10,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMissionStore } from "@/store/missionStore";
 import { generateLawnmowerGrid, calculateSpacing } from "@/lib/surveyGrid";
 import { useConnected, useHeartbeat, useGps } from "@/hooks/useTelemetry";
@@ -40,6 +40,8 @@ export default function MissionPanel() {
 
     const [phase, setPhase] = useState<Phase>(1);
     const [uploading, setUploading] = useState(false);
+    const uploadingRef = useRef(false);
+    const [uploadError, setUploadError] = useState<string | null>(null);
     const [sarEnabled, setSarEnabled] = useState(false);
     const [sarBusy, setSarBusy] = useState(false);
     const [sarMsg, setSarMsg] = useState<string | null>(null);
@@ -66,20 +68,32 @@ export default function MissionPanel() {
     // ── Phase 2: Upload ──
     const handleUpload = useCallback(async () => {
         if (!window.electron || waypoints.length === 0) return;
+        // Ref guard: setUploading is async, a fast double-click can fire two
+        // uploads before the button disables. Two concurrent handshakes
+        // desync the FC.
+        if (uploadingRef.current) return;
+        uploadingRef.current = true;
         setUploading(true);
+        setUploadError(null);
         setMissionState("uploading");
         try {
             const result = await window.electron.uploadMission(waypoints);
+            console.log("[MissionPanel] uploadMission result:", result);
             if (result.success) {
                 setMissionState("uploaded");
                 setPhase(3);
             } else {
+                setUploadError(result.message || "Upload failed (no reason given)");
                 setMissionState("planning");
             }
         } catch (e) {
+            const msg = e instanceof Error ? e.message : "Upload threw an exception";
+            console.error("[MissionPanel] uploadMission error:", e);
+            setUploadError(msg);
             setMissionState("planning");
         } finally {
             setUploading(false);
+            uploadingRef.current = false;
         }
     }, [waypoints, setMissionState]);
 
@@ -301,6 +315,23 @@ export default function MissionPanel() {
                             ← Back to Planning
                         </button>
                     </div>
+
+                    {uploadError && (
+                        <div
+                            style={{
+                                marginTop: 10,
+                                padding: "8px 10px",
+                                borderRadius: "var(--radius-sm)",
+                                background: "rgba(239, 68, 68, 0.12)",
+                                border: "1px solid rgba(239, 68, 68, 0.35)",
+                                color: "var(--accent-red)",
+                                fontSize: "0.75rem",
+                                lineHeight: 1.4,
+                            }}
+                        >
+                            <strong>Upload failed:</strong> {uploadError}
+                        </div>
+                    )}
                 </div>
             )}
 
