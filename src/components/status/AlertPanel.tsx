@@ -47,6 +47,10 @@ export default function AlertPanel() {
     const lastBatWarn = useRef(0);
     const lastGpsWarn = useRef(0);
     const connectTime = useRef(0);
+    // Voltage thresholds already announced this discharge. Each fires once
+    // as the pack crosses it downward; re-arms if voltage recovers above
+    // it + hysteresis (e.g. a fresh/charged battery is connected).
+    const firedVoltageAlerts = useRef<Set<number>>(new Set());
 
     // Track when connection starts to avoid false GPS alerts
     useEffect(() => {
@@ -70,6 +74,31 @@ export default function AlertPanel() {
             addAlert({ type: "battery_low", title: "Low Battery", message: `Battery at ${battery.remaining}% — ${battery.voltage.toFixed(1)}V` });
         }
     }, [battery.remaining, battery.voltage, connected, addAlert, lowBatPercent, critBatPercent]);
+
+    // Voltage-threshold battery alerts (6S pack). Fires once per threshold
+    // as the pack drains: 22.0 / 21.5 / 21.0 / 20.5 V. 20.5 V is critical —
+    // explicitly tells the operator to charge.
+    useEffect(() => {
+        const v = battery.voltage;
+        if (!connected || !(v > 5)) return; // ignore 0/garbage readings
+        const THRESHOLDS = [
+            { v: 22.0, type: "battery_low" as const, title: "Battery 22.0 V", msg: "Battery at 22.0 V — getting low, plan to wrap up." },
+            { v: 21.5, type: "battery_low" as const, title: "Battery 21.5 V", msg: "Battery at 21.5 V — hard-stop threshold reached." },
+            { v: 21.0, type: "battery_low" as const, title: "Battery 21.0 V", msg: "Battery at 21.0 V — low. Stop testing soon." },
+            { v: 20.5, type: "battery_critical" as const, title: "CHARGE BATTERY", msg: "Battery at 20.5 V — critical. Stop now and charge the battery." },
+        ];
+        // Re-arm thresholds the pack has recovered well above (battery swap).
+        for (const t of THRESHOLDS) {
+            if (v > t.v + 0.3) firedVoltageAlerts.current.delete(t.v);
+        }
+        for (const t of THRESHOLDS) {
+            if (v <= t.v && !firedVoltageAlerts.current.has(t.v)) {
+                firedVoltageAlerts.current.add(t.v);
+                addAlert({ type: t.type, title: t.title, message: `${t.msg} (${v.toFixed(2)} V)` });
+                if (t.v <= 20.5) playAlertBeep(440, 400);
+            }
+        }
+    }, [battery.voltage, connected, addAlert]);
 
     // GPS loss alert — only after 10s of being connected (avoids false positives on connect)
     useEffect(() => {
