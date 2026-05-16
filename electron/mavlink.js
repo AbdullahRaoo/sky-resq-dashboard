@@ -60,6 +60,14 @@ const MAV_COMP_ID_ONBOARD_COMPUTER = 191;       // companion Pi component id
 // to TELEM2. Using sysid=1 (same as FC) collapsed the route entries.
 const PI_TARGET_SYSTEM = 2;
 
+// While a direct SiK serial heartbeat has been seen within this window, the
+// serial link is treated as the sole authority for heartbeat-derived state
+// (armed / flight mode). The Pi UDP mirror over Tailscale is jittery and can
+// deliver heartbeats out of order; without this guard the ARMED/MODE display
+// flaps for a second or two on every state change. UDP only drives heartbeat
+// state once serial has genuinely gone stale (true failover).
+const HB_SERIAL_AUTHORITY_MS = 3000;
+
 // MAV_RESULT enum (subset)
 const MAV_RESULT = {
     0: "ACCEPTED",
@@ -685,6 +693,7 @@ class MAVLinkHandler {
         this._heartbeatInterval = null; // 1Hz GCS heartbeat to drone
         this._msgCounts = {};  // debug: track message counts
         this._streamsRequested = false; // flag: have we requested telemetry streams?
+        this._lastFcSerialMs = 0; // wall-clock ms of last direct-serial FC heartbeat
         /** @type {Set<(ack: {command: number, result: number, progress: number}) => void>} */
         this._ackListeners = new Set();
         /** @type {Set<(msg: {msgId: number, sysId: number, compId: number, payload: Buffer}) => void>} */
@@ -1375,8 +1384,23 @@ class MAVLinkHandler {
                     }
 
                     if (isAutopilot) {
-                        this._state.heartbeat = hb;
-                        this._state.last_heartbeat = Date.now() / 1000;
+                        const nowMs = Date.now();
+                        if (source === "serial") this._lastFcSerialMs = nowMs;
+
+                        // Serial is in-order and low-jitter; the UDP/Pi-mirror
+                        // path is not. While serial is fresh, only serial
+                        // heartbeats are allowed to mutate armed/mode state —
+                        // this stops a late UDP heartbeat from briefly
+                        // reverting the display after a state change.
+                        const serialFresh = this._lastFcSerialMs > 0 &&
+                            (nowMs - this._lastFcSerialMs) < HB_SERIAL_AUTHORITY_MS;
+                        if (source === "serial" || !serialFresh) {
+                            this._state.heartbeat = hb;
+                        }
+
+                        // Connection liveness tracks ANY FC heartbeat so the
+                        // UDP path still keeps the link alive on failover.
+                        this._state.last_heartbeat = nowMs / 1000;
                         this._targetSystem = msg.sysId;
                         this._targetComponent = msg.compId;
 
