@@ -1,36 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SkyResQ: Ground Control Station Dashboard
 
-## Getting Started
+The operator dashboard for the [SkyResQ](https://github.com/AbdullahRaoo/skyresq) autonomous search-and-rescue UAV. Streams live telemetry and object-detection video, and lets a supervisor monitor and manage autonomous missions.
 
-First, run the development server:
+## What it does
+
+- Streams the **live object-detection feed** from the drone
+- Displays **real-time flight telemetry** (position, attitude, status)
+- Visualizes **detected survivors on a map** with their computed GPS coordinates
+- Gives the operator oversight of the autonomous mission state
+
+## Tech stack
+
+**Frontend:** Next.js / React, TypeScript
+**Realtime:** WebSockets / telemetry stream
+**Integration:** connects to the SkyResQ companion computer and ground link
+
+## Getting started
 
 ```bash
+git clone https://github.com/AbdullahRaoo/sky-resq-dashboard
+cd sky-resq-dashboard
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Status
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Companion dashboard to the SkyResQ final-year research project.
